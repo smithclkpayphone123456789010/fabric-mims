@@ -40,7 +40,8 @@ organizations:
 # orderer节点列表
 orderers:
   orderer.qq.com:
-    url: 127.0.0.1:7050
+    # url: 127.0.0.1:7050
+    url: 192.168.112.130:7050
     # 传递给gRPC客户端构造函数
     grpcOptions:
       ssl-target-name-override: orderer.qq.com
@@ -55,7 +56,8 @@ peers:
   # peer节点定义，可以定义多个
   peer0.jd.com:
     # URL用于发送背书和查询请求
-    url: 127.0.0.1:27051
+    # url: 127.0.0.1:27051
+    url: 192.168.112.130:27051
     # 传递给gRPC客户端构造函数
     grpcOptions:
       ssl-target-name-override: peer0.jd.com
@@ -65,7 +67,8 @@ peers:
       fail-fast: false
       allow-insecure: true
   peer1.jd.com:
-    url: 127.0.0.1:37051
+    # url: 127.0.0.1:37051
+    url: 192.168.112.130:37051
     grpcOptions:
       ssl-target-name-override: peer1.jd.com
       keep-alive-time: 0s
@@ -74,7 +77,8 @@ peers:
       fail-fast: false
       allow-insecure: true
   peer0.taobao.com:
-    url: 127.0.0.1:7051
+    # url: 127.0.0.1:7051
+    url: 192.168.112.130:7051
     grpcOptions:
       ssl-target-name-override: peer0.taobao.com
       keep-alive-time: 0s
@@ -83,7 +87,8 @@ peers:
       fail-fast: false
       allow-insecure: true
   peer1.taobao.com:
-    url: 127.0.0.1:17051
+    # url: 127.0.0.1:17051
+    url: 192.168.112.130:17051
     grpcOptions:
       ssl-target-name-override: peer1.taobao.com
       keep-alive-time: 0s
