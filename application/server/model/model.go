@@ -11,8 +11,20 @@ type AccountRequestBody struct {
 }
 
 type CreateAccountBody struct {
-	AccountName string `json:"account_name"`
-	Operator    string `json:"operator"`
+	AccountName     string `json:"account_name"`      // 姓名/名称
+	Role            string `json:"role"`              // doctor/patient/drugstore/insurance
+	Operator        string `json:"operator"`          // 操作人
+	HospitalID      string `json:"hospital_id"`       // 所属医院ID
+	HospitalName    string `json:"hospital_name"`     // 所属医院名称
+	Department      string `json:"department"`        // 所属科室
+	Title           string `json:"title"`             // 职位
+	Gender          string `json:"gender"`            // 性别
+	EmployeeNo      string `json:"employee_no"`       // 工号
+	IDCardNo        string `json:"id_card_no"`        // 身份证号
+	InsuranceCardNo string `json:"insurance_card_no"` // 医保卡号
+	Age             string `json:"age"`               // 年龄
+	BirthDate       string `json:"birth_date"`        // 出生年月
+	Phone           string `json:"phone"`             // 联系方式
 }
 
 // ----------------------         Prescription 病历   ----------------------------------

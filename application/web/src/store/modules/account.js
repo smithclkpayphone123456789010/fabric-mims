@@ -68,21 +68,28 @@ const actions = {
           account_id: state.token
         }]
       }).then(response => {
-        var roles
-        if (/管理员/.test(response[0].account_name)) {
-          roles = ['admin']
-        } else if (/医生/.test(response[0].account_name)){
-          roles = ['doctor']
-        } else if (/病人/.test(response[0].account_name)){
-          roles = ['patient']
-        } else if (/药店/.test(response[0].account_name)){
-          roles = ['drugstore']
-        } else if (/保险机构/.test(response[0].account_name)){
-          roles = ['insurance']
+        const account = response[0] || {}
+        let role = account.role
+
+        // 兼容旧数据（没有 role 字段时按名称推断）
+        if (!role) {
+          if (/管理员/.test(account.account_name || '')) {
+            role = 'admin'
+          } else if (/医生/.test(account.account_name || '')) {
+            role = 'doctor'
+          } else if (/病人|患者/.test(account.account_name || '')) {
+            role = 'patient'
+          } else if (/药店/.test(account.account_name || '')) {
+            role = 'drugstore'
+          } else if (/保险/.test(account.account_name || '')) {
+            role = 'insurance'
+          }
         }
+
+        const roles = role ? [role] : ['patient']
         commit('SET_ROLES', roles)
-        commit('SET_ACCOUNTID', response[0].account_id)
-        commit('SET_USERNAME', response[0].account_name)
+        commit('SET_ACCOUNTID', account.account_id || '')
+        commit('SET_USERNAME', account.account_name || '')
         resolve(roles)
       }).catch(error => {
         reject(error)

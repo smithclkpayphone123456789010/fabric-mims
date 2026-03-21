@@ -69,15 +69,46 @@ func QueryAccountV2List(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 
 // CreateAccountV2 创建角色
 func CreateAccountV2(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	// 验证参数
-	if len(args) != 2 {
+	// accountName, role, operator, hospitalID, hospitalName, department, title, gender, employeeNo, idCardNo, insuranceCardNo, age, birthDate, phone
+	if len(args) != 14 {
 		return shim.Error("参数个数不满足")
 	}
-	userName := args[0] // 用户名
-	operator := args[1] // 操作人ID
+	userName := args[0]
+	role := args[1]
+	operator := args[2]
+	hospitalID := args[3]
+	hospitalName := args[4]
+	department := args[5]
+	title := args[6]
+	gender := args[7]
+	employeeNo := args[8]
+	idCardNo := args[9]
+	insuranceCardNo := args[10]
+	age := args[11]
+	birthDate := args[12]
+	phone := args[13]
 
-	if operator == "" || userName == "" {
+	if operator == "" || userName == "" || role == "" {
 		return shim.Error("参数存在空值")
+	}
+
+	switch role {
+	case "doctor":
+		if hospitalName == "" || department == "" || title == "" || gender == "" || employeeNo == "" {
+			return shim.Error("医生信息不完整")
+		}
+	case "patient":
+		if idCardNo == "" || insuranceCardNo == "" || gender == "" || age == "" || birthDate == "" || phone == "" {
+			return shim.Error("患者信息不完整")
+		}
+	case "drugstore":
+		if hospitalName == "" {
+			return shim.Error("药店所属医院不能为空")
+		}
+	case "insurance":
+		// 保险机构仅校验基础字段
+	default:
+		return shim.Error("角色类型不合法")
 	}
 
 	// 判断是否为管理员操作
@@ -94,8 +125,20 @@ func CreateAccountV2(stub shim.ChaincodeStubInterface, args []string) pb.Respons
 	}
 
 	newAccount := &model.AccountV2{
-		AccountId:   stub.GetTxID()[:12],
-		AccountName: userName,
+		AccountId:       stub.GetTxID()[:12],
+		AccountName:     userName,
+		Role:            role,
+		HospitalID:      hospitalID,
+		HospitalName:    hospitalName,
+		Department:      department,
+		Title:           title,
+		Gender:          gender,
+		EmployeeNo:      employeeNo,
+		IDCardNo:        idCardNo,
+		InsuranceCardNo: insuranceCardNo,
+		Age:             age,
+		BirthDate:       birthDate,
+		Phone:           phone,
 	}
 	// 写入账本
 	if err := utils.WriteLedger(newAccount, stub, model.AccountV2Key, []string{newAccount.AccountId}); err != nil {

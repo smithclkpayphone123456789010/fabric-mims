@@ -22,7 +22,13 @@
         </div>
       </div>
 
-      <el-select v-model="value" placeholder="请选择用户账号" class="form-item">
+      <el-select
+        v-model="value"
+        placeholder="请选择用户账号"
+        class="form-item"
+        filterable
+        clearable
+      >
         <el-option
           v-for="item in filteredAccounts"
           :key="item.account_id"
@@ -74,21 +80,33 @@ export default {
       },
       activeRole: 'admin',
       roleDefs: [
-        { key: 'admin', label: '管理员', keywords: ['管理员'] },
-        { key: 'doctor', label: '医生', keywords: ['医生'] },
-        { key: 'patient', label: '患者', keywords: ['病人', '患者'] },
-        { key: 'drugstore', label: '药店', keywords: ['药店'] },
-        { key: 'insurance', label: '医疗保险', keywords: ['保险'] }
+        { key: 'admin', label: '管理员', roleValue: 'admin', keywords: ['管理员'] },
+        { key: 'doctor', label: '医生', roleValue: 'doctor', keywords: ['医生'] },
+        { key: 'patient', label: '患者', roleValue: 'patient', keywords: ['病人', '患者'] },
+        { key: 'drugstore', label: '药店', roleValue: 'drugstore', keywords: ['药店'] },
+        { key: 'insurance', label: '医疗保险', roleValue: 'insurance', keywords: ['保险'] }
       ],
       hospitals: ['北京协和医院', '华西医院', '上海交通大学医学院附属瑞金医院', '广东省人民医院'],
       pharmacies: ['国大药房', '益丰大药房', '老百姓大药房', '大参林药店']
     }
   },
   computed: {
+    normalizedAccounts() {
+      return this.accountList.map(item => {
+        if (item.role) return item
+        const name = item.account_name || ''
+        let role = 'patient'
+        if (/管理员/.test(name)) role = 'admin'
+        else if (/医生/.test(name)) role = 'doctor'
+        else if (/药店/.test(name)) role = 'drugstore'
+        else if (/保险/.test(name)) role = 'insurance'
+        return { ...item, role }
+      })
+    },
     filteredAccounts() {
       const currentRole = this.roleDefs.find(item => item.key === this.activeRole)
-      if (!currentRole) return this.accountList
-      return this.accountList.filter(item => currentRole.keywords.some(k => item.account_name.includes(k)))
+      if (!currentRole) return this.normalizedAccounts
+      return this.normalizedAccounts.filter(item => item.role === currentRole.roleValue)
     },
     showAffiliation() {
       return this.activeRole === 'doctor' || this.activeRole === 'drugstore'
@@ -106,17 +124,21 @@ export default {
     }
   },
   created() {
-    queryAccountList().then(response => {
-      if (response !== null) {
-        this.accountList = response
-      }
-    })
+    this.loadAccounts()
   },
   methods: {
+    loadAccounts() {
+      queryAccountList().then(response => {
+        if (response !== null) {
+          this.accountList = response
+        }
+      })
+    },
     switchRole(roleKey) {
       this.activeRole = roleKey
       this.value = ''
       this.form.affiliation = ''
+      this.loadAccounts()
     },
     handleLogin() {
       if (this.value) {

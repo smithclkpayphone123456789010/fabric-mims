@@ -23,9 +23,21 @@ func (t *BlockChainMedicalInfoManageSystem) Init(stub shim.ChaincodeStubInterfac
 	var userNameV2s = [7]string{"管理员", "医生", "①号病人", "②号病人", "③号病人", "药店", "保险机构"}
 	//初始化账号数据
 	for i, val := range accountV2Ids {
+		role := "patient"
+		switch userNameV2s[i] {
+		case "管理员":
+			role = "admin"
+		case "医生":
+			role = "doctor"
+		case "药店":
+			role = "drugstore"
+		case "保险机构":
+			role = "insurance"
+		}
 		account := &model.AccountV2{
 			AccountId:   val,
 			AccountName: userNameV2s[i],
+			Role:        role,
 		}
 		// 写入账本
 		if err := utils.WriteLedger(account, stub, model.AccountV2Key, []string{val}); err != nil {
