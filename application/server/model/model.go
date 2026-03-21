@@ -18,14 +18,19 @@ type CreateAccountBody struct {
 // ----------------------         Prescription 病历   ----------------------------------
 
 type PrescriptionRequestBody struct {
-	Doctor    string `json:"doctor"`    // 医生ID
-	Patient   string `json:"patient"`   // 患者Id
-	Diagnosis string `json:"diagnosis"` // 诊断结果
-	//Drug      []Drug `json:"drug"`      // 药品列表及用量
-	DrugName   string `json:"drug_name"`   // 药品名
-	DrugAmount string `json:"drug_amount"` // 药品用量
-	Hospital   string `json:"hospital"`    // 医院 ID
-	Comment    string `json:"comment"`     // 备注
+	Doctor             string `json:"doctor" form:"doctor"`                           // 医生ID
+	Patient            string `json:"patient" form:"patient"`                         // 患者Id
+	RecordType         string `json:"record_type" form:"record_type"`                 // 病历类型: EMR/REPORT/PRESCRIPTION
+	FileHash           string `json:"file_hash" form:"file_hash"`                     // 病历文件哈希
+	SymptomDescription string `json:"symptom_description" form:"symptom_description"` // 症状描述
+	DoctorDiagnosis    string `json:"doctor_diagnosis" form:"doctor_diagnosis"`       // 医生诊断
+	Diagnosis          string `json:"diagnosis" form:"diagnosis"`                     // 兼容旧字段
+	DrugName           string `json:"drug_name" form:"drug_name"`                     // 药品名
+	DrugAmount         string `json:"drug_amount" form:"drug_amount"`                 // 药品用量
+	Hospital           string `json:"hospital" form:"hospital"`                       // 医院 ID
+	Comment            string `json:"comment" form:"comment"`                         // 备注
+	FileName           string `json:"file_name" form:"file_name"`                     // 文件名
+	FilePath           string `json:"file_path" form:"file_path"`                     // 本地加密文件路径
 }
 
 type PrescriptionQueryRequestBody struct {

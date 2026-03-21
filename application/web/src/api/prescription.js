@@ -1,11 +1,13 @@
 import request from '@/utils/request'
 
 // 新建病历(医生)
-export function createPrescription(data) {
+export function createPrescription(data, onUploadProgress) {
     return request({
         url: '/createPrescription',
         method: 'post',
-        data
+        data,
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress
     })
 }
 

@@ -14,31 +14,48 @@ import (
 
 // CreatePrescription 创建处方(医生)
 func CreatePrescription(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	// 验证参数
-	if len(args) != 7 {
+	// 新版参数（13个）:
+	// doctor, patient, recordType, fileHash, fileName, filePath, symptomDescription, doctorDiagnosis, diagnosis, drugName, drugAmount, hospital, comment
+	if len(args) != 13 {
 		return shim.Error("参数个数不满足")
 	}
-	doctorID := args[0]   // 医生id
-	patientID := args[1]  // 患者id
-	diagnosis := args[2]  // 诊断结果
-	drugName := args[3]   // 药品名
-	drugAmount := args[4] // 药品数量
-	hospitalID := args[5] // 医院ID
-	comment := args[6]    // 备注
-	if doctorID == "" || patientID == "" || diagnosis == "" || drugName == "" || drugAmount == "" || hospitalID == "" {
+	doctorID := args[0]           // 医生id
+	patientID := args[1]          // 患者id
+	recordType := args[2]         // 病历类型
+	fileHash := args[3]           // 文件哈希
+	fileName := args[4]           // 文件名
+	filePath := args[5]           // 文件路径
+	symptomDescription := args[6] // 症状描述
+	doctorDiagnosis := args[7]    // 医生诊断
+	diagnosis := args[8]          // 兼容旧字段
+	drugName := args[9]           // 药品名
+	drugAmount := args[10]        // 药品数量
+	hospitalID := args[11]        // 医院ID
+	comment := args[12]           // 备注
+
+	if doctorID == "" || patientID == "" || recordType == "" || fileHash == "" || hospitalID == "" {
 		return shim.Error("参数存在空值")
 	}
+	if len(symptomDescription) > 500 || len(doctorDiagnosis) > 500 || len(comment) > 500 {
+		return shim.Error("文本长度超出限制")
+	}
 
-	// 参数数据格式转换
+	// 参数数据格式转换（兼容旧字段）
 	var drugs []model.Drug
-	drugNames := strings.Split(drugName, ",")
-	drugAmounts := strings.Split(drugAmount, ",")
-	for i, v := range drugNames {
-		drug := model.Drug{
-			Name:   v,
-			Amount: drugAmounts[i],
+	if drugName != "" && drugAmount != "" {
+		drugNames := strings.Split(drugName, ",")
+		drugAmounts := strings.Split(drugAmount, ",")
+		for i, v := range drugNames {
+			amount := ""
+			if i < len(drugAmounts) {
+				amount = drugAmounts[i]
+			}
+			drug := model.Drug{
+				Name:   v,
+				Amount: amount,
+			}
+			drugs = append(drugs, drug)
 		}
-		drugs = append(drugs, drug)
 	}
 
 	// 判断是否为医生操作
@@ -60,26 +77,34 @@ func CreatePrescription(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 		return shim.Error(fmt.Sprintf("患者信息验证失败%s", err))
 	}
 
+	if diagnosis == "" {
+		diagnosis = doctorDiagnosis
+	}
+
 	prescription := &model.Prescription{
-		ID:        stub.GetTxID()[:16],
-		Patient:   patientID,
-		Diagnosis: diagnosis,
-		Drug:      drugs,
-		Doctor:    doctorID,
-		Hospital:  hospitalID,
-		Created:   time.Now().Format("2006-01-02 15:04:05"),
-		Comment:   comment,
+		ID:                 stub.GetTxID()[:16],
+		Patient:            patientID,
+		RecordType:         recordType,
+		FileHash:           fileHash,
+		FileName:           fileName,
+		FilePath:           filePath,
+		SymptomDescription: symptomDescription,
+		DoctorDiagnosis:    doctorDiagnosis,
+		Diagnosis:          diagnosis,
+		Drug:               drugs,
+		Doctor:             doctorID,
+		Hospital:           hospitalID,
+		Created:            time.Now().Format("2006-01-02 15:04:05"),
+		Comment:            comment,
 	}
 	// 写入账本
 	if err := utils.WriteLedger(prescription, stub, model.PrescriptionKey, []string{prescription.Patient, prescription.ID}); err != nil {
 		return shim.Error(fmt.Sprintf("%s", err))
 	}
-	//将成功创建的信息返回
 	prescriptionByte, err := json.Marshal(prescription)
 	if err != nil {
 		return shim.Error(fmt.Sprintf("序列化成功创建的信息出错: %s", err))
 	}
-	// 成功返回
 	return shim.Success(prescriptionByte)
 }
 

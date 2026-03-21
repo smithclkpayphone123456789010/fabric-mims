@@ -48,14 +48,20 @@ type Doctor struct {
 
 // Prescription 医疗处方
 type Prescription struct {
-	ID        string `json:"id"`        // 医疗处方ID
-	Patient   string `json:"patient"`   // 患者ID
-	Diagnosis string `json:"diagnosis"` // 诊断结果
-	Drug      []Drug `json:"drug"`      // 药品列表及用量
-	Doctor    string `json:"doctor"`    // 开方医师 AccountV2Id
-	Hospital  string `json:"hospital"`  // 医院 ID
-	Created   string `json:"created"`   // 创建时间
-	Comment   string `json:"comment"`   // 备注
+	ID                 string `json:"id"`                  // 医疗处方ID
+	Patient            string `json:"patient"`             // 患者ID
+	RecordType         string `json:"record_type"`         // 病历类型
+	FileHash           string `json:"file_hash"`           // 文件哈希
+	FileName           string `json:"file_name"`           // 文件名
+	FilePath           string `json:"file_path"`           // 本地加密存储路径
+	SymptomDescription string `json:"symptom_description"` // 症状描述
+	DoctorDiagnosis    string `json:"doctor_diagnosis"`    // 医生诊断
+	Diagnosis          string `json:"diagnosis"`           // 兼容旧字段
+	Drug               []Drug `json:"drug"`                // 药品列表及用量
+	Doctor             string `json:"doctor"`              // 开方医师 AccountV2Id
+	Hospital           string `json:"hospital"`            // 医院 ID
+	Created            string `json:"created"`             // 创建时间
+	Comment            string `json:"comment"`             // 备注
 }
 
 // Patient 患者
