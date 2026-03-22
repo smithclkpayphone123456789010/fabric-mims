@@ -67,8 +67,8 @@ func CreatePrescription(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 	if err = json.Unmarshal(resultsAccount[0], &account); err != nil {
 		return shim.Error(fmt.Sprintf("查询操作人信息-反序列化出错: %s", err))
 	}
-	if account.AccountName != "医生" {
-		return shim.Error(fmt.Sprintf("操作人权限不足%s", err))
+	if account.Role != "doctor" && account.AccountName != "医生" {
+		return shim.Error("操作人权限不足")
 	}
 
 	// 判断患者是否存在

@@ -9,7 +9,7 @@
       class="record-form"
     >
       <el-form-item label="病人" prop="patient">
-        <el-select v-model="ruleForm.patient" placeholder="请选择病人" class="full-width" @change="selectGet">
+        <el-select v-model="ruleForm.patient" placeholder="请选择病人（支持模糊搜索）" class="full-width" filterable clearable @change="selectGet">
           <el-option
             v-for="item in accountList"
             :key="item.account_id"
@@ -146,7 +146,10 @@ export default {
   created() {
     queryAccountList().then(response => {
       if (response !== null) {
-        this.accountList = response.filter(item => /病人$/.test(item.account_name))
+        this.accountList = response.filter(item => {
+          if (item.role) return item.role === 'patient'
+          return /病人|患者/.test(item.account_name || '')
+        })
       }
     })
   },
@@ -200,12 +203,12 @@ export default {
       this.$refs[formName].validate((valid) => {
         if (!valid) return false
 
-        this.$confirm('是否立即创建?', '提示', {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'success'
-        }).then(() => {
-          this.loading = true
+          this.$confirm('是否立即创建?', '提示', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'success'
+          }).then(() => {
+            this.loading = true
           this.uploadPercent = 0
 
           const formData = new FormData()
@@ -222,22 +225,22 @@ export default {
           createPrescription(formData, (evt) => {
             if (!evt || !evt.total) return
             this.uploadPercent = Math.min(100, Math.round((evt.loaded / evt.total) * 100))
-          }).then(response => {
-            this.loading = false
+            }).then(response => {
+              this.loading = false
             this.uploadPercent = 100
-            if (response !== null) {
+              if (response !== null) {
               this.$message({ type: 'success', message: '创建成功!' })
-            } else {
+              } else {
               this.$message({ type: 'error', message: '创建失败!' })
-            }
+              }
+          }).catch(() => {
+              this.loading = false
+            this.uploadPercent = 0
+            })
           }).catch(() => {
             this.loading = false
-            this.uploadPercent = 0
-          })
-        }).catch(() => {
-          this.loading = false
           this.$message({ type: 'info', message: '已取消创建' })
-        })
+            })
       })
     },
     resetForm(formName) {

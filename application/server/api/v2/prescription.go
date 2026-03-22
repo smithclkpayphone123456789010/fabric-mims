@@ -141,6 +141,52 @@ func QueryPrescriptionList(c *gin.Context) {
 	appG.Response(http.StatusOK, "成功", data)
 }
 
+func PreviewPrescriptionFile(c *gin.Context) {
+	filePath := strings.TrimSpace(c.Query("file_path"))
+	fileName := strings.TrimSpace(c.Query("file_name"))
+	if filePath == "" {
+		c.String(http.StatusBadRequest, "file_path不能为空")
+		return
+	}
+
+	cleanPath := filepath.Clean(filePath)
+	if !strings.HasPrefix(cleanPath, filepath.Join("uploads", "records")) {
+		c.String(http.StatusBadRequest, "非法文件路径")
+		return
+	}
+
+	cipherData, err := os.ReadFile(cleanPath)
+	if err != nil {
+		c.String(http.StatusNotFound, "文件不存在")
+		return
+	}
+
+	plainData, err := decryptAES256GCM(cipherData)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "文件解密失败")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(fileName))
+	if ext == "" {
+		ext = strings.ToLower(filepath.Ext(cleanPath))
+	}
+
+	contentType := "application/octet-stream"
+	switch ext {
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".png":
+		contentType = "image/png"
+	case ".pdf":
+		contentType = "application/pdf"
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, contentType, plainData)
+}
+
 func saveEncryptedFile(file multipart.File, fileHeader *multipart.FileHeader) (string, string, error) {
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
 	if !allowedExt[ext] {
@@ -196,4 +242,23 @@ func encryptAES256GCM(plainData []byte) ([]byte, error) {
 	result = append(result, nonce...)
 	result = append(result, cipherText...)
 	return result, nil
+}
+
+func decryptAES256GCM(cipherData []byte) ([]byte, error) {
+	key := sha256.Sum256([]byte("fabric-mims-file-encryption-key-2026"))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(cipherData) < nonceSize {
+		return nil, fmt.Errorf("密文长度非法")
+	}
+	nonce := cipherData[:nonceSize]
+	enc := cipherData[nonceSize:]
+	return gcm.Open(nil, nonce, enc, nil)
 }
