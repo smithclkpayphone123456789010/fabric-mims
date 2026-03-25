@@ -34,15 +34,41 @@ type PrescriptionRequestBody struct {
 	Patient            string `json:"patient" form:"patient"`                         // 患者Id
 	RecordType         string `json:"record_type" form:"record_type"`                 // 病历类型: EMR/REPORT/PRESCRIPTION
 	FileHash           string `json:"file_hash" form:"file_hash"`                     // 病历文件哈希
-	SymptomDescription string `json:"symptom_description" form:"symptom_description"` // 症状描述
-	DoctorDiagnosis    string `json:"doctor_diagnosis" form:"doctor_diagnosis"`       // 医生诊断
+	SymptomDescription string `json:"symptom_description" form:"symptom_description"` // 兼容旧字段-症状描述
+	DoctorDiagnosis    string `json:"doctor_diagnosis" form:"doctor_diagnosis"`       // 兼容旧字段-医生诊断
 	Diagnosis          string `json:"diagnosis" form:"diagnosis"`                     // 兼容旧字段
-	DrugName           string `json:"drug_name" form:"drug_name"`                     // 药品名
-	DrugAmount         string `json:"drug_amount" form:"drug_amount"`                 // 药品用量
+	DrugName           string `json:"drug_name" form:"drug_name"`                     // 兼容旧字段-药品名
+	DrugAmount         string `json:"drug_amount" form:"drug_amount"`                 // 兼容旧字段-药品用量
 	Hospital           string `json:"hospital" form:"hospital"`                       // 医院 ID
 	Comment            string `json:"comment" form:"comment"`                         // 备注
 	FileName           string `json:"file_name" form:"file_name"`                     // 文件名
 	FilePath           string `json:"file_path" form:"file_path"`                     // 本地加密文件路径
+
+	PatientName      string `json:"patient_name" form:"patient_name"`
+	PatientGender    string `json:"patient_gender" form:"patient_gender"`
+	PatientAge       string `json:"patient_age" form:"patient_age"`
+	PatientIDCardNo  string `json:"patient_id_card_no" form:"patient_id_card_no"`
+	PatientPhone     string `json:"patient_phone" form:"patient_phone"`
+	InsuranceCardNo  string `json:"insurance_card_no" form:"insurance_card_no"`
+	HospitalName     string `json:"hospital_name" form:"hospital_name"`
+	Department       string `json:"department" form:"department"`
+	VisitDoctorName  string `json:"visit_doctor_name" form:"visit_doctor_name"`
+	ChiefComplaint   string `json:"chief_complaint" form:"chief_complaint"`
+	PresentIllness   string `json:"present_illness" form:"present_illness"`
+	PastHistory      string `json:"past_history" form:"past_history"`
+	AllergyHistory   string `json:"allergy_history" form:"allergy_history"`
+	FamilyHistory    string `json:"family_history" form:"family_history"`
+	Temperature      string `json:"temperature" form:"temperature"`
+	Pulse            string `json:"pulse" form:"pulse"`
+	BloodPressure    string `json:"blood_pressure" form:"blood_pressure"`
+	Respiration      string `json:"respiration" form:"respiration"`
+	PhysicalExam     string `json:"physical_exam" form:"physical_exam"`
+	LabExam          string `json:"lab_exam" form:"lab_exam"`
+	ImagingExam      string `json:"imaging_exam" form:"imaging_exam"`
+	DiagnosisResult  string `json:"diagnosis_result" form:"diagnosis_result"`
+	TreatmentPlan    string `json:"treatment_plan" form:"treatment_plan"`
+	MedicationAdvice string `json:"medication_advice" form:"medication_advice"`
+	DoctorAdvice     string `json:"doctor_advice" form:"doctor_advice"`
 }
 
 type PrescriptionQueryRequestBody struct {

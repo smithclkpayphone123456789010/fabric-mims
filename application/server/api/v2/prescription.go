@@ -48,9 +48,15 @@ func CreatePrescription(c *gin.Context) {
 	}
 
 	if body.RecordType == "" {
-		body.RecordType = "EMR"
+		body.RecordType = "门诊病历"
 	}
-	if body.RecordType != "EMR" && body.RecordType != "REPORT" && body.RecordType != "PRESCRIPTION" {
+	validRecordType := map[string]bool{
+		"门诊病历": true,
+		"住院病历": true,
+		"急诊病历": true,
+		"检查报告": true,
+	}
+	if !validRecordType[body.RecordType] {
 		appG.Response(http.StatusBadRequest, "失败", "病历类型不合法")
 		return
 	}
@@ -64,6 +70,10 @@ func CreatePrescription(c *gin.Context) {
 	}
 	if len(body.Comment) > 500 {
 		appG.Response(http.StatusBadRequest, "失败", "备注不能超过500字符")
+		return
+	}
+	if body.ChiefComplaint == "" || body.PresentIllness == "" || body.DiagnosisResult == "" {
+		appG.Response(http.StatusBadRequest, "失败", "主诉、现病史、诊断结果为必填")
 		return
 	}
 
@@ -103,6 +113,31 @@ func CreatePrescription(c *gin.Context) {
 	bodyBytes = append(bodyBytes, []byte(body.DrugAmount))
 	bodyBytes = append(bodyBytes, []byte(body.Hospital))
 	bodyBytes = append(bodyBytes, []byte(body.Comment))
+	bodyBytes = append(bodyBytes, []byte(body.PatientName))
+	bodyBytes = append(bodyBytes, []byte(body.PatientGender))
+	bodyBytes = append(bodyBytes, []byte(body.PatientAge))
+	bodyBytes = append(bodyBytes, []byte(body.PatientIDCardNo))
+	bodyBytes = append(bodyBytes, []byte(body.PatientPhone))
+	bodyBytes = append(bodyBytes, []byte(body.InsuranceCardNo))
+	bodyBytes = append(bodyBytes, []byte(body.HospitalName))
+	bodyBytes = append(bodyBytes, []byte(body.Department))
+	bodyBytes = append(bodyBytes, []byte(body.VisitDoctorName))
+	bodyBytes = append(bodyBytes, []byte(body.ChiefComplaint))
+	bodyBytes = append(bodyBytes, []byte(body.PresentIllness))
+	bodyBytes = append(bodyBytes, []byte(body.PastHistory))
+	bodyBytes = append(bodyBytes, []byte(body.AllergyHistory))
+	bodyBytes = append(bodyBytes, []byte(body.FamilyHistory))
+	bodyBytes = append(bodyBytes, []byte(body.Temperature))
+	bodyBytes = append(bodyBytes, []byte(body.Pulse))
+	bodyBytes = append(bodyBytes, []byte(body.BloodPressure))
+	bodyBytes = append(bodyBytes, []byte(body.Respiration))
+	bodyBytes = append(bodyBytes, []byte(body.PhysicalExam))
+	bodyBytes = append(bodyBytes, []byte(body.LabExam))
+	bodyBytes = append(bodyBytes, []byte(body.ImagingExam))
+	bodyBytes = append(bodyBytes, []byte(body.DiagnosisResult))
+	bodyBytes = append(bodyBytes, []byte(body.TreatmentPlan))
+	bodyBytes = append(bodyBytes, []byte(body.MedicationAdvice))
+	bodyBytes = append(bodyBytes, []byte(body.DoctorAdvice))
 
 	resp, err := bc.ChannelExecute("createPrescription", bodyBytes)
 	if err != nil {

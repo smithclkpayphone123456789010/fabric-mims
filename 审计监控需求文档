@@ -1,0 +1,553 @@
+# 审计监控需求文档（开发标准版）
+
+## 1. 文档信息
+- 项目：fabric-mims（基于 Hyperledger Fabric 的医院患者管理系统）
+- 模块：审计监控
+- 版本：v1.1（按当前项目约束修订）
+- 日期：2026-03-25
+- 适用范围：`chaincode`、`application/server`、`application/web`
+
+---
+
+## 2. 关键约束与原则（必须遵守）
+
+1. **不引入 MySQL/ES 等新存储**。本项目审计数据按现状统一存储在链上（通过 chaincode 状态 + 复合索引检索）。
+2. **只有一个管理员角色（admin）**，不设计复杂 RBAC。
+3. 第一阶段仅实现 4 个模块：
+   - 日志采集模块
+   - 审计检索模块
+   - 报表导出模块
+   - 告警与监控模块
+4. 接口风格与现有项目保持一致：`application/server/api/v2` 对外提供 REST；后端调用 Fabric 链码方法。
+
+---
+
+## 3. 总体设计（链上审计模型）
+
+## 3.1 链上实体建议
+
+### A. AuditEvent（审计事件）
+用途：记录所有审计日志（请求、业务关键操作、失败事件、导出、告警处置等）
+
+核心字段：
+- `id`：审计事件ID（建议雪花/时间+随机）
+- `event_type`：事件类型（见附录）
+- `event_level`：L1/L2/L3
+- `event_time`：事件时间（`2006-01-02 15:04:05`）
+- `actor_id`：操作者（固定 admin 账号ID）
+- `org_id`：机构ID（可空）
+- `target_patient_id`：目标患者ID（可空）
+- `target_record_id`：目标病历ID（可空）
+- `tx_id`：关联交易哈希（可空）
+- `chaincode_func`：关联链码函数（可空）
+- `request_path`、`request_method`
+- `request_id`、`trace_id`
+- `client_ip`、`user_agent`
+- `action_result`：SUCCESS/FAIL
+- `fail_reason`：失败原因（可空）
+- `detail_json`：详情JSON字符串（请求参数摘要/响应摘要）
+- `hash_prev`、`hash_current`：哈希链字段（防篡改）
+
+### B. AuditAlert（告警）
+用途：记录规则命中的告警
+
+核心字段：
+- `id`
+- `rule_code`（如 `UNAUTHORIZED_ACCESS`）
+- `level`（HIGH/MEDIUM/LOW）
+- `status`（NEW/ACKED/RESOLVED）
+- `trigger_time`
+- `event_id`（关联审计事件）
+- `actor_id`
+- `target_patient_id`、`target_record_id`
+- `description`
+- `handle_time`、`handle_note`
+
+### C. AuditExportTask（导出任务）
+用途：记录报表导出任务和下载状态
+
+核心字段：
+- `id`
+- `creator_id`
+- `create_time`
+- `status`（PENDING/RUNNING/SUCCESS/FAIL）
+- `format`（CSV/XLSX）
+- `filter_json`（导出筛选条件）
+- `file_name`
+- `file_hash`（导出文件摘要）
+- `fail_reason`
+- `finish_time`
+
+## 3.2 链上索引建议（复合键）
+- `audit-event-key(id)`
+- `audit-event-time-index-key(event_time, id)`
+- `audit-event-type-index-key(event_type, event_time, id)`
+- `audit-event-actor-index-key(actor_id, event_time, id)`
+- `audit-event-patient-index-key(target_patient_id, event_time, id)`
+- `audit-event-record-index-key(target_record_id, event_time, id)`
+- `audit-event-tx-index-key(tx_id, id)`
+- `audit-alert-key(id)`
+- `audit-alert-status-index-key(status, trigger_time, id)`
+- `audit-export-task-key(id)`
+- `audit-export-task-status-index-key(status, create_time, id)`
+
+---
+
+## 4. 模块一：日志采集模块
+
+## 4.1 功能点
+1. **HTTP审计中间件**
+   - 对所有 `/api/v2/*` 请求自动采集：path、method、耗时、状态码、ip、ua、request_id。
+2. **业务关键事件埋点**
+   - 病历创建、病历查询、授权发起/续期/撤销、导出发起、导出下载、告警确认/关闭。
+3. **失败事件采集**
+   - 参数校验失败、权限失败、链码调用失败、系统异常。
+4. **链上关联**
+   - 若产生 Fabric 交易，记录 tx_id + chaincode_func。
+5. **哈希链防篡改**
+   - 写新日志时读取上一条 hash_current，计算本条 hash_current。
+
+## 4.2 后端接口（内部调试/运维可用）
+1. `POST /api/v2/audit/events/manual`
+   - 用途：手工写入测试审计事件（开发联调）
+2. `GET /api/v2/audit/collector/health`
+   - 用途：采集模块健康状态
+
+## 4.3 前端页面
+- 本模块无独立页面（自动采集）
+- 在“审计检索”页面验证采集结果
+
+## 4.4 交互
+- 管理员在任何业务页面执行动作 -> 后端自动写审计事件到链上 -> 检索页可见。
+
+---
+
+## 5. 模块二：审计检索模块
+
+## 5.1 功能点
+1. 审计日志分页查询
+2. 多条件组合筛选
+3. 日志详情查看（含关联 tx_id）
+4. 快速筛选（今日/失败/授权相关/病历访问）
+5. 按当前筛选条件一键发起导出
+
+## 5.2 接口定义（Go Request/Response）
+
+### 5.2.1 GET `/api/v2/audit/events`
+Query 参数：
+- `start_time` `string`
+- `end_time` `string`
+- `event_type` `string`
+- `event_level` `string`
+- `action_result` `string`
+- `target_patient_id` `string`
+- `target_record_id` `string`
+- `tx_id` `string`
+- `keyword` `string`
+- `page` `int`
+- `size` `int`
+
+Go 结构：
+```go
+// application/server/model/model.go
+
+type AuditEventListRequestBody struct {
+	StartTime       string `form:"start_time" json:"start_time"`
+	EndTime         string `form:"end_time" json:"end_time"`
+	EventType       string `form:"event_type" json:"event_type"`
+	EventLevel      string `form:"event_level" json:"event_level"`
+	ActionResult    string `form:"action_result" json:"action_result"`
+	TargetPatientID string `form:"target_patient_id" json:"target_patient_id"`
+	TargetRecordID  string `form:"target_record_id" json:"target_record_id"`
+	TxID            string `form:"tx_id" json:"tx_id"`
+	Keyword         string `form:"keyword" json:"keyword"`
+	Page            int    `form:"page" json:"page"`
+	Size            int    `form:"size" json:"size"`
+}
+
+type AuditEventItem struct {
+	ID              string `json:"id"`
+	EventType       string `json:"event_type"`
+	EventLevel      string `json:"event_level"`
+	EventTime       string `json:"event_time"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	ActionResult    string `json:"action_result"`
+	TxID            string `json:"tx_id"`
+	RequestPath     string `json:"request_path"`
+	Message         string `json:"message"`
+}
+
+type AuditEventListResponse struct {
+	List  []AuditEventItem `json:"list"`
+	Total int              `json:"total"`
+	Page  int              `json:"page"`
+	Size  int              `json:"size"`
+}
+```
+
+### 5.2.2 GET `/api/v2/audit/events/{event_id}`
+```go
+type AuditEventDetailResponse struct {
+	ID              string `json:"id"`
+	EventType       string `json:"event_type"`
+	EventLevel      string `json:"event_level"`
+	EventTime       string `json:"event_time"`
+	ActorID         string `json:"actor_id"`
+	OrgID           string `json:"org_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	TxID            string `json:"tx_id"`
+	ChaincodeFunc   string `json:"chaincode_func"`
+	RequestPath     string `json:"request_path"`
+	RequestMethod   string `json:"request_method"`
+	RequestID       string `json:"request_id"`
+	TraceID         string `json:"trace_id"`
+	ClientIP        string `json:"client_ip"`
+	UserAgent       string `json:"user_agent"`
+	ActionResult    string `json:"action_result"`
+	FailReason      string `json:"fail_reason"`
+	DetailJSON      string `json:"detail_json"`
+	HashPrev        string `json:"hash_prev"`
+	HashCurrent     string `json:"hash_current"`
+}
+```
+
+### 5.2.3 GET `/api/v2/audit/events/stats`
+```go
+type AuditEventStatsResponse struct {
+	TotalCount   int `json:"total_count"`
+	SuccessCount int `json:"success_count"`
+	FailCount    int `json:"fail_count"`
+	L2Count      int `json:"l2_count"`
+	L3Count      int `json:"l3_count"`
+}
+```
+
+## 5.3 前端页面字段与按钮（Vue）
+
+页面：`审计检索`
+
+1. 筛选区字段：
+- 时间范围（`start_time/end_time`）
+- 事件类型（下拉）
+- 事件级别（L1/L2/L3）
+- 执行结果（SUCCESS/FAIL）
+- 患者ID
+- 病历ID
+- TxID
+- 关键词
+
+2. 列表字段：
+- 时间
+- 事件类型
+- 级别
+- 操作人
+- 患者ID
+- 病历ID
+- 结果
+- TxID
+- 请求路径
+- 操作（查看详情）
+
+3. 按钮：
+- `查询`
+- `重置`
+- `仅看失败`
+- `仅看今日`
+- `导出当前结果`
+- 行内：`详情`
+
+4. 详情弹窗字段：
+- 基础信息、请求信息、链上关联信息、结果信息、防篡改字段。
+
+## 5.4 页面交互
+1. 管理员设置筛选条件 -> 点“查询”
+2. 显示分页列表
+3. 点“详情”打开弹窗
+4. 点“导出当前结果”跳转/唤起导出任务创建
+
+---
+
+## 6. 模块三：报表导出模块
+
+## 6.1 功能点
+1. 基于筛选条件创建导出任务
+2. 支持 CSV（必做）/XLSX（建议）
+3. 导出任务状态跟踪（PENDING/RUNNING/SUCCESS/FAIL）
+4. 下载导出文件
+5. 导出操作自动记审计日志
+
+## 6.2 接口定义（Go Request/Response）
+
+### 6.2.1 POST `/api/v2/audit/reports/export`
+```go
+type AuditExportCreateRequestBody struct {
+	Format        string `json:"format"` // csv/xlsx
+	MaskSensitive bool   `json:"mask_sensitive"`
+	FilterJSON    string `json:"filter_json"` // 与检索条件一致的JSON
+}
+
+type AuditExportCreateResponse struct {
+	TaskID string `json:"task_id"`
+}
+```
+
+### 6.2.2 GET `/api/v2/audit/reports/tasks`
+```go
+type AuditExportTaskItem struct {
+	ID         string `json:"id"`
+	CreatorID  string `json:"creator_id"`
+	CreateTime string `json:"create_time"`
+	Status     string `json:"status"`
+	Format     string `json:"format"`
+	FileName   string `json:"file_name"`
+	FinishTime string `json:"finish_time"`
+	FailReason string `json:"fail_reason"`
+}
+
+type AuditExportTaskListResponse struct {
+	List  []AuditExportTaskItem `json:"list"`
+	Total int                   `json:"total"`
+}
+```
+
+### 6.2.3 GET `/api/v2/audit/reports/tasks/{task_id}`
+```go
+type AuditExportTaskDetailResponse struct {
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	Format     string `json:"format"`
+	FilterJSON string `json:"filter_json"`
+	FileName   string `json:"file_name"`
+	FileHash   string `json:"file_hash"`
+	FailReason string `json:"fail_reason"`
+	CreateTime string `json:"create_time"`
+	FinishTime string `json:"finish_time"`
+}
+```
+
+### 6.2.4 GET `/api/v2/audit/reports/download/{task_id}`
+- 下载文件流（成功任务可下载）
+
+## 6.3 前端页面字段与按钮（Vue）
+
+页面：`报表导出`
+
+1. 创建导出区字段：
+- 导出格式（csv/xlsx）
+- 脱敏开关（mask_sensitive）
+- 条件预览（来自检索页条件）
+
+2. 任务列表字段：
+- 任务ID
+- 创建时间
+- 状态
+- 格式
+- 文件名
+- 完成时间
+- 失败原因
+- 操作
+
+3. 按钮：
+- `创建导出`
+- `刷新状态`
+- 行内：`下载`（SUCCESS时可点）
+- 行内：`查看详情`
+
+## 6.4 页面交互
+1. 从检索页带条件进入，或在导出页选择条件
+2. 点击“创建导出”
+3. 任务进入列表，管理员刷新查看状态
+4. 成功后点击“下载”
+
+---
+
+## 7. 模块四：告警与监控模块
+
+## 7.1 功能点
+1. 内置告警规则（先写死在后端配置）：
+   - `UNAUTHORIZED_ACCESS`：未授权访问病历
+   - `HIGH_FREQ_ACCESS`：短时高频访问
+   - `CONTINUOUS_FAIL`：连续失败调用
+2. 规则命中生成告警
+3. 告警状态流转：NEW -> ACKED -> RESOLVED
+4. 告警处置记录（处理备注）
+5. 告警统计（今日总数/未处理/高危）
+
+## 7.2 接口定义（Go Request/Response）
+
+### 7.2.1 GET `/api/v2/audit/alerts`
+```go
+type AuditAlertListRequestBody struct {
+	Level     string `form:"level" json:"level"`
+	Status    string `form:"status" json:"status"`
+	StartTime string `form:"start_time" json:"start_time"`
+	EndTime   string `form:"end_time" json:"end_time"`
+	Page      int    `form:"page" json:"page"`
+	Size      int    `form:"size" json:"size"`
+}
+
+type AuditAlertItem struct {
+	ID              string `json:"id"`
+	RuleCode        string `json:"rule_code"`
+	Level           string `json:"level"`
+	Status          string `json:"status"`
+	TriggerTime     string `json:"trigger_time"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	Description     string `json:"description"`
+}
+
+type AuditAlertListResponse struct {
+	List  []AuditAlertItem `json:"list"`
+	Total int              `json:"total"`
+}
+```
+
+### 7.2.2 GET `/api/v2/audit/alerts/{alert_id}`
+```go
+type AuditAlertDetailResponse struct {
+	ID              string `json:"id"`
+	RuleCode        string `json:"rule_code"`
+	Level           string `json:"level"`
+	Status          string `json:"status"`
+	TriggerTime     string `json:"trigger_time"`
+	EventID         string `json:"event_id"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	Description     string `json:"description"`
+	HandleTime      string `json:"handle_time"`
+	HandleNote      string `json:"handle_note"`
+}
+```
+
+### 7.2.3 POST `/api/v2/audit/alerts/{alert_id}/ack`
+```go
+type AuditAlertAckResponse struct {
+	Success bool `json:"success"`
+}
+```
+
+### 7.2.4 POST `/api/v2/audit/alerts/{alert_id}/resolve`
+```go
+type AuditAlertResolveRequestBody struct {
+	HandleNote string `json:"handle_note"`
+}
+
+type AuditAlertResolveResponse struct {
+	Success bool `json:"success"`
+}
+```
+
+### 7.2.5 GET `/api/v2/audit/alerts/stats`
+```go
+type AuditAlertStatsResponse struct {
+	TodayCount    int `json:"today_count"`
+	Unresolved    int `json:"unresolved"`
+	HighLevelCount int `json:"high_level_count"`
+}
+```
+
+## 7.3 前端页面字段与按钮（Vue）
+
+页面：`告警中心`
+
+1. 筛选字段：
+- 告警级别
+- 告警状态
+- 时间范围
+
+2. 列表字段：
+- 触发时间
+- 规则编码
+- 级别
+- 状态
+- 操作人
+- 患者ID
+- 病历ID
+- 描述
+- 操作
+
+3. 按钮：
+- `查询`
+- `重置`
+- 行内：`详情`
+- 行内：`确认`（仅 NEW）
+- 行内：`关闭`（仅 ACKED/NEW，弹窗填写处理备注）
+
+4. 详情弹窗：
+- 告警详情 + 关联审计事件ID + 处置信息。
+
+## 7.4 页面交互
+1. 后端规则命中自动生成告警
+2. 管理员在告警中心查询与查看详情
+3. 点击“确认”进入 ACKED
+4. 处理完成点击“关闭”，填写备注
+
+---
+
+## 8. 路由与页面清单（Vue）
+
+建议新增页面：
+1. `application/web/src/views/audit/search/index.vue`（审计检索）
+2. `application/web/src/views/audit/export/index.vue`（报表导出）
+3. `application/web/src/views/audit/alert/index.vue`（告警中心）
+
+建议新增 API 文件：
+1. `application/web/src/api/audit.js`
+
+---
+
+## 9. 后端开发清单（Go）
+
+建议新增：
+1. `application/server/api/v2/audit.go`（审计模块路由入口）
+2. `application/server/model/model.go` 补充审计请求/响应结构体
+3. `chaincode/model/model.go` 补充 `AuditEvent`、`AuditAlert`、`AuditExportTask` 结构及索引常量
+4. `chaincode/api/audit.go` 实现链码审计读写能力
+5. `chaincode/chaincode.go` 注册审计相关 invoke 方法
+6. HTTP 中间件（请求审计埋点）接入 `application/server`
+
+---
+
+## 10. 统一交互流程（端到端）
+
+1. 管理员执行业务操作（如查询病历）
+2. 后端调用链码完成业务逻辑
+3. 后端同步/异步写入 `AuditEvent`（含 tx_id）
+4. 告警规则引擎判断是否命中，命中则写 `AuditAlert`
+5. 管理员在“审计检索/告警中心”查看结果
+6. 管理员按条件发起导出，生成 `AuditExportTask` 并下载文件
+7. 导出与告警处置行为也会再次写入 `AuditEvent`（形成闭环）
+
+---
+
+## 11. 验收标准（本期）
+
+1. 审计检索页可按至少 5 个条件组合查询链上日志。
+2. 日志详情可看到 tx_id、请求摘要、结果信息。
+3. 能创建导出任务并下载 CSV 文件。
+4. 告警中心可查看告警、确认、关闭并记录备注。
+5. 审计事件按哈希链连续可校验。
+6. 全流程仅 admin 一个角色即可完成所有操作。
+
+---
+
+## 12. 附录：事件类型建议（第一期）
+- `LOGIN`
+- `QUERY_RECORD`
+- `CREATE_RECORD`
+- `GRANT_RECORD_AUTH`
+- `RENEW_RECORD_AUTH`
+- `REVOKE_RECORD_AUTH`
+- `CHECK_RECORD_ACCESS`
+- `EXPORT_REPORT_CREATE`
+- `EXPORT_REPORT_DOWNLOAD`
+- `ALERT_ACK`
+- `ALERT_RESOLVE`
+- `API_ERROR`
+- `CHAINCODE_ERROR`

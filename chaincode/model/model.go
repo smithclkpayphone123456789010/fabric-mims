@@ -71,14 +71,40 @@ type Prescription struct {
 	FileHash           string `json:"file_hash"`           // 文件哈希
 	FileName           string `json:"file_name"`           // 文件名
 	FilePath           string `json:"file_path"`           // 本地加密存储路径
-	SymptomDescription string `json:"symptom_description"` // 症状描述
-	DoctorDiagnosis    string `json:"doctor_diagnosis"`    // 医生诊断
+	SymptomDescription string `json:"symptom_description"` // 兼容旧字段-症状描述
+	DoctorDiagnosis    string `json:"doctor_diagnosis"`    // 兼容旧字段-医生诊断
 	Diagnosis          string `json:"diagnosis"`           // 兼容旧字段
-	Drug               []Drug `json:"drug"`                // 药品列表及用量
+	Drug               []Drug `json:"drug"`                // 药品列表及用量(兼容旧字段)
 	Doctor             string `json:"doctor"`              // 开方医师 AccountV2Id
 	Hospital           string `json:"hospital"`            // 医院 ID
 	Created            string `json:"created"`             // 创建时间
 	Comment            string `json:"comment"`             // 备注
+
+	PatientName      string `json:"patient_name"`
+	PatientGender    string `json:"patient_gender"`
+	PatientAge       string `json:"patient_age"`
+	PatientIDCardNo  string `json:"patient_id_card_no"`
+	PatientPhone     string `json:"patient_phone"`
+	InsuranceCardNo  string `json:"insurance_card_no"`
+	HospitalName     string `json:"hospital_name"`
+	Department       string `json:"department"`
+	VisitDoctorName  string `json:"visit_doctor_name"`
+	ChiefComplaint   string `json:"chief_complaint"`
+	PresentIllness   string `json:"present_illness"`
+	PastHistory      string `json:"past_history"`
+	AllergyHistory   string `json:"allergy_history"`
+	FamilyHistory    string `json:"family_history"`
+	Temperature      string `json:"temperature"`
+	Pulse            string `json:"pulse"`
+	BloodPressure    string `json:"blood_pressure"`
+	Respiration      string `json:"respiration"`
+	PhysicalExam     string `json:"physical_exam"`
+	LabExam          string `json:"lab_exam"`
+	ImagingExam      string `json:"imaging_exam"`
+	DiagnosisResult  string `json:"diagnosis_result"`
+	TreatmentPlan    string `json:"treatment_plan"`
+	MedicationAdvice string `json:"medication_advice"`
+	DoctorAdvice     string `json:"doctor_advice"`
 }
 
 // Patient 患者

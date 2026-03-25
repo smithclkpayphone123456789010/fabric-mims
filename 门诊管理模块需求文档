@@ -1,0 +1,705 @@
+# 门诊管理模块需求文档（开发标准版）
+
+## 1. 文档信息
+- 项目：fabric-mims（基于 Hyperledger Fabric 的医院患者管理系统）
+- 模块：门诊管理
+- 版本：v1.0
+- 日期：2026-03-26
+- 适用范围：`chaincode`、`application/server`、`application/web`
+
+---
+
+## 2. 项目约束与设计原则（必须遵守）
+
+1. **纯链上存储原则**：不新增 MySQL/ES，门诊核心业务数据与关键审计数据均通过链码写入账本。
+2. **架构保持一致**：前端 Vue -> `application/server/api/v2` -> Fabric SDK -> chaincode。
+3. **交易可追溯**：关键操作需返回交易结果，并可展示 `tx_id`。
+4. **状态机驱动**：挂号、支付、排队、就诊均采用明确状态流转，禁止越级跳转。
+5. **最小角色集**：结合你当前系统，默认仅实现 `admin` 可管理；患者/医生端页面可按账号类型显示，但后端先按现有账号体系兼容（不扩展复杂权限系统）。
+
+---
+
+## 3. 背景与目标
+
+门诊是患者就医入口，流程长、参与方多、容易出现数据不一致和追责困难。基于联盟链实现门诊全流程上链，目标是：
+
+1. 挂号、缴费、排队、就诊、处方流转全链路可追溯。
+2. 关键节点不可篡改（状态变更留痕）。
+3. 前端操作有明确“提交中/成功/失败”反馈。
+4. 为后续审计监控、统计分析提供标准化数据基础。
+
+---
+
+## 4. 业务流程（标准流程）
+
+```text
+患者 -> 挂号预约 -> 支付挂号费 -> 排队候诊 -> 医生就诊 -> 开具处方 -> 缴费 -> 就诊完成
+```
+
+异常分支：
+- 挂号后可取消（未就诊前）
+- 未支付不可进入排队
+- 已完成就诊不可重复缴同一挂号费
+
+---
+
+## 5. 角色与使用场景
+
+## 5.1 患者（前端视角）
+- 选择科室/医生/时间段挂号
+- 查看我的预约与状态
+- 查看并支付待缴费用
+- 查看当前排队进度
+- 查看历史门诊记录
+
+## 5.2 医生（前端视角）
+- 发布号源（时间段、名额）
+- 查看预约患者
+- 叫号并更新就诊状态
+- 关联开具处方
+
+## 5.3 管理员（系统实现优先）
+- 维护科室、号源、门诊规则参数
+- 查看门诊统计数据
+- 检索链上门诊记录与交易哈希
+
+> 说明：你当前系统仅一个管理员角色，第一期可由管理员代行医生/患者操作进行功能验证，后续再开放端侧入口。
+
+---
+
+## 6. 功能模块设计（开发范围）
+
+## 6.1 挂号管理模块
+
+### 6.1.1 功能点
+1. 查询科室列表
+2. 查询医生与可预约号源
+3. 选择时间段并提交挂号
+4. 取消挂号（未就诊前）
+5. 查询我的挂号记录
+
+### 6.1.2 状态机
+- `BOOKED`（已预约）
+- `CANCELLED`（已取消）
+- `VISITED`（已就诊）
+
+状态约束：
+- `BOOKED -> CANCELLED`（允许）
+- `BOOKED -> VISITED`（就诊完成后）
+- `CANCELLED` 不可逆
+
+### 6.1.3 链上实体建议（Registration）
+- `id`
+- `patient_id`
+- `doctor_id`
+- `department_id`
+- `schedule_slot_id`
+- `visit_date`
+- `status`
+- `fee_amount`
+- `fee_status`（UNPAID/PAID）
+- `queue_no`
+- `created_time`
+- `updated_time`
+
+---
+
+## 6.2 号源管理模块（医生侧能力）
+
+### 6.2.1 功能点
+1. 新增号源（日期、时间段、最大人数）
+2. 修改/关闭号源
+3. 查看号源预约进度（已约/余量）
+4. 防超卖校验（链码层）
+
+### 6.2.2 链上实体建议（ScheduleSlot）
+- `id`
+- `doctor_id`
+- `department_id`
+- `visit_date`
+- `start_time`
+- `end_time`
+- `capacity`
+- `booked_count`
+- `status`（OPEN/CLOSED）
+- `created_time`
+- `updated_time`
+
+---
+
+## 6.3 缴费管理模块
+
+### 6.3.1 功能点
+1. 查询待支付订单（挂号费、药品费）
+2. 提交支付（模拟支付）
+3. 支付成功写链并更新状态
+4. 查询支付历史
+
+### 6.3.2 状态机
+- `UNPAID`（未支付）
+- `PAID`（已支付）
+
+### 6.3.3 链上实体建议（OutpatientPayment）
+- `id`
+- `order_type`（REG_FEE/DRUG_FEE）
+- `registration_id`
+- `patient_id`
+- `amount`
+- `status`
+- `paid_time`
+- `tx_id`
+- `created_time`
+
+---
+
+## 6.4 就诊队列模块
+
+### 6.4.1 功能点
+1. 查询某医生当前队列
+2. 患者查看当前叫号和前方人数
+3. 医生开始就诊（叫号）
+4. 医生完成就诊
+
+### 6.4.2 状态机
+```text
+WAITING -> IN_PROGRESS -> DONE
+```
+
+约束：
+- 必须已支付挂号费才能进入 `WAITING`
+- 同一时刻同一医生仅一个 `IN_PROGRESS`
+
+### 6.4.3 链上实体建议（QueueItem）
+- `id`
+- `registration_id`
+- `doctor_id`
+- `patient_id`
+- `queue_no`
+- `status`
+- `called_time`
+- `finished_time`
+- `created_time`
+
+---
+
+## 6.5 门诊记录模块（聚合视图）
+
+### 6.5.1 功能点
+1. 查询单次门诊全流程记录（挂号、支付、排队、就诊、处方）
+2. 查询患者历史门诊记录
+3. 展示关键交易哈希（tx_id）
+4. 支持按时间、患者、医生筛选
+
+### 6.5.2 输出要求
+- 每条记录可追溯对应链上交易
+- 展示关键状态变更时间线
+
+---
+
+## 7. Go 接口定义（Request/Response 标准）
+
+> 位置建议：`application/server/model/model.go` 增加门诊相关结构；`application/server/api/v2/outpatient.go` 实现接口。
+
+## 7.1 通用返回结构
+
+```go
+// 统一响应结构（与现有项目风格保持一致可适配）
+type BaseResponse struct {
+    Code    int         `json:"code"`
+    Message string      `json:"message"`
+    Data    interface{} `json:"data,omitempty"`
+    TxID    string      `json:"tx_id,omitempty"` // 链上写操作返回
+}
+```
+
+## 7.2 挂号管理接口
+
+### POST `/api/v2/outpatient/registration/create`
+
+```go
+type CreateRegistrationRequest struct {
+    PatientID    string `json:"patient_id"`
+    DoctorID     string `json:"doctor_id"`
+    DepartmentID string `json:"department_id"`
+    SlotID       string `json:"slot_id"`
+    VisitDate    string `json:"visit_date"` // yyyy-mm-dd
+}
+
+type CreateRegistrationResponse struct {
+    RegistrationID string `json:"registration_id"`
+    Status         string `json:"status"` // BOOKED
+    QueueNo        string `json:"queue_no"`
+}
+```
+
+### POST `/api/v2/outpatient/registration/cancel`
+
+```go
+type CancelRegistrationRequest struct {
+    RegistrationID string `json:"registration_id"`
+    OperatorID     string `json:"operator_id"`
+}
+
+type CancelRegistrationResponse struct {
+    RegistrationID string `json:"registration_id"`
+    Status         string `json:"status"` // CANCELLED
+}
+```
+
+### GET `/api/v2/outpatient/registration/list`
+
+```go
+type QueryRegistrationListRequest struct {
+    PatientID string `form:"patient_id"`
+    Status    string `form:"status"` // BOOKED/CANCELLED/VISITED
+    Page      int    `form:"page"`
+    Size      int    `form:"size"`
+}
+
+type RegistrationItem struct {
+    RegistrationID string `json:"registration_id"`
+    PatientID      string `json:"patient_id"`
+    DoctorID       string `json:"doctor_id"`
+    DepartmentID   string `json:"department_id"`
+    VisitDate      string `json:"visit_date"`
+    SlotLabel      string `json:"slot_label"`
+    Status         string `json:"status"`
+    FeeStatus      string `json:"fee_status"`
+    QueueNo        string `json:"queue_no"`
+    TxID           string `json:"tx_id"`
+}
+
+type QueryRegistrationListResponse struct {
+    Total int                `json:"total"`
+    List  []RegistrationItem `json:"list"`
+}
+```
+
+## 7.3 号源管理接口
+
+### POST `/api/v2/outpatient/slot/create`
+
+```go
+type CreateSlotRequest struct {
+    DoctorID     string `json:"doctor_id"`
+    DepartmentID string `json:"department_id"`
+    VisitDate    string `json:"visit_date"`
+    StartTime    string `json:"start_time"` // HH:mm
+    EndTime      string `json:"end_time"`
+    Capacity     int    `json:"capacity"`
+}
+
+type CreateSlotResponse struct {
+    SlotID  string `json:"slot_id"`
+    Status  string `json:"status"` // OPEN
+    Remains int    `json:"remains"`
+}
+```
+
+### GET `/api/v2/outpatient/slot/list`
+
+```go
+type QuerySlotListRequest struct {
+    DepartmentID string `form:"department_id"`
+    DoctorID     string `form:"doctor_id"`
+    VisitDate    string `form:"visit_date"`
+}
+
+type SlotItem struct {
+    SlotID      string `json:"slot_id"`
+    DoctorID    string `json:"doctor_id"`
+    VisitDate   string `json:"visit_date"`
+    StartTime   string `json:"start_time"`
+    EndTime     string `json:"end_time"`
+    Capacity    int    `json:"capacity"`
+    BookedCount int    `json:"booked_count"`
+    Remains     int    `json:"remains"`
+    Status      string `json:"status"`
+}
+
+type QuerySlotListResponse struct {
+    List []SlotItem `json:"list"`
+}
+```
+
+## 7.4 缴费管理接口
+
+### GET `/api/v2/outpatient/payment/list`
+
+```go
+type QueryPaymentListRequest struct {
+    PatientID string `form:"patient_id"`
+    Status    string `form:"status"` // UNPAID/PAID
+    Page      int    `form:"page"`
+    Size      int    `form:"size"`
+}
+
+type PaymentItem struct {
+    PaymentID       string `json:"payment_id"`
+    OrderType       string `json:"order_type"`
+    RegistrationID  string `json:"registration_id"`
+    Amount          string `json:"amount"`
+    Status          string `json:"status"`
+    CreatedTime     string `json:"created_time"`
+    PaidTime        string `json:"paid_time"`
+    TxID            string `json:"tx_id"`
+}
+
+type QueryPaymentListResponse struct {
+    Total int           `json:"total"`
+    List  []PaymentItem `json:"list"`
+}
+```
+
+### POST `/api/v2/outpatient/payment/pay`
+
+```go
+type PayOrderRequest struct {
+    PaymentID  string `json:"payment_id"`
+    PatientID  string `json:"patient_id"`
+    PayChannel string `json:"pay_channel"` // mock/wechat/alipay
+}
+
+type PayOrderResponse struct {
+    PaymentID string `json:"payment_id"`
+    Status    string `json:"status"` // PAID
+    PaidTime  string `json:"paid_time"`
+}
+```
+
+## 7.5 就诊队列接口
+
+### GET `/api/v2/outpatient/queue/current`
+
+```go
+type QueryQueueCurrentRequest struct {
+    DoctorID string `form:"doctor_id"`
+}
+
+type QueueCurrentResponse struct {
+    CallingNo   string `json:"calling_no"`
+    WaitingCount int   `json:"waiting_count"`
+    Queue       []struct {
+        QueueNo        string `json:"queue_no"`
+        RegistrationID string `json:"registration_id"`
+        PatientID      string `json:"patient_id"`
+        Status         string `json:"status"` // WAITING/IN_PROGRESS/DONE
+    } `json:"queue"`
+}
+```
+
+### POST `/api/v2/outpatient/queue/start`
+
+```go
+type StartVisitRequest struct {
+    RegistrationID string `json:"registration_id"`
+    DoctorID       string `json:"doctor_id"`
+}
+
+type StartVisitResponse struct {
+    RegistrationID string `json:"registration_id"`
+    QueueStatus    string `json:"queue_status"` // IN_PROGRESS
+}
+```
+
+### POST `/api/v2/outpatient/queue/finish`
+
+```go
+type FinishVisitRequest struct {
+    RegistrationID string `json:"registration_id"`
+    DoctorID       string `json:"doctor_id"`
+}
+
+type FinishVisitResponse struct {
+    RegistrationID string `json:"registration_id"`
+    QueueStatus    string `json:"queue_status"` // DONE
+    VisitStatus    string `json:"visit_status"` // VISITED
+}
+```
+
+## 7.6 门诊记录接口
+
+### GET `/api/v2/outpatient/record/list`
+
+```go
+type QueryOutpatientRecordListRequest struct {
+    PatientID string `form:"patient_id"`
+    DoctorID  string `form:"doctor_id"`
+    StartDate string `form:"start_date"`
+    EndDate   string `form:"end_date"`
+    Page      int    `form:"page"`
+    Size      int    `form:"size"`
+}
+
+type OutpatientRecordItem struct {
+    RegistrationID string `json:"registration_id"`
+    PatientID      string `json:"patient_id"`
+    DoctorID       string `json:"doctor_id"`
+    DepartmentID   string `json:"department_id"`
+    VisitDate      string `json:"visit_date"`
+    RegistrationStatus string `json:"registration_status"`
+    FeeStatus      string `json:"fee_status"`
+    QueueStatus    string `json:"queue_status"`
+    PrescriptionID string `json:"prescription_id"`
+    TxID           string `json:"tx_id"`
+}
+
+type QueryOutpatientRecordListResponse struct {
+    Total int                    `json:"total"`
+    List  []OutpatientRecordItem `json:"list"`
+}
+```
+
+---
+
+## 8. 前端页面字段与按钮清单（Vue 实现标准）
+
+> 目录建议：`application/web/src/views/outpatient/...`
+
+## 8.1 患者端页面（可先由管理员入口代测）
+
+### A. 挂号页面 `views/outpatient/register/index.vue`
+
+**筛选字段**
+- 科室（下拉）
+- 就诊日期（日期选择）
+- 医生关键词（输入，可选）
+
+**列表字段（医生+号源）**
+- 医生姓名
+- 科室
+- 时间段按钮组（09:00-10:00）
+- 剩余号源
+
+**按钮**
+- `查询`
+- `重置`
+- `挂号`
+
+**交互**
+1. 选科室/日期后点查询，刷新号源。
+2. 点时间段后高亮。
+3. 点“挂号”弹确认框。
+4. 确认后显示 loading：`提交中（区块链确认中...）`。
+5. 成功提示：`挂号成功（已上链）` + 展示 `tx_id`。
+6. 失败提示：错误信息 + 保留当前选择。
+
+---
+
+### B. 我的预约 `views/outpatient/my-registration/index.vue`
+
+**筛选字段**
+- 状态（全部/BOOKED/CANCELLED/VISITED）
+- 日期区间
+
+**表格字段**
+- 预约编号
+- 医生
+- 科室
+- 日期+时间段
+- 排队号
+- 状态
+- 交易ID
+- 操作
+
+**按钮**
+- `查询`
+- `重置`
+- 行内 `取消预约`（仅 BOOKED 可见）
+- 行内 `查看详情`
+
+**交互**
+- 取消预约二次确认。
+- 取消成功后状态刷新为 `CANCELLED`。
+
+---
+
+### C. 缴费页面 `views/outpatient/payment/index.vue`
+
+**筛选字段**
+- 状态（UNPAID/PAID）
+- 订单类型（挂号费/药品费）
+
+**表格字段**
+- 订单号
+- 类型
+- 金额
+- 状态
+- 创建时间
+- 支付时间
+- 交易ID
+- 操作
+
+**按钮**
+- `查询`
+- `重置`
+- 行内 `去支付`（仅 UNPAID）
+
+**交互**
+- 点击去支付 -> 确认框 -> 提交中 -> 成功变 PAID。
+
+---
+
+### D. 排队页面 `views/outpatient/queue/index.vue`
+
+**展示字段**
+- 当前叫号
+- 我的号码
+- 前方人数
+- 队列列表（号码、状态）
+
+**按钮**
+- `刷新`
+- `开启自动刷新` / `关闭自动刷新`
+
+**交互**
+- 默认每 5 秒轮询刷新。
+- 当前叫号变化时高亮提醒。
+
+---
+
+## 8.2 医生端页面
+
+### A. 号源管理 `views/outpatient/slot/index.vue`
+
+**输入字段**
+- 医生
+- 科室
+- 日期
+- 开始时间
+- 结束时间
+- 最大人数
+
+**列表字段**
+- 日期
+- 时间段
+- 总数
+- 已约
+- 余量
+- 状态
+
+**按钮**
+- `发布号源`
+- `关闭号源`
+- `查询`
+- `重置`
+
+**交互**
+- 发布成功后列表即时追加并展示 tx_id。
+
+---
+
+### B. 就诊队列 `views/outpatient/doctor-queue/index.vue`
+
+**列表字段**
+- 排队号
+- 患者ID/姓名（按现有字段可展示ID）
+- 状态
+- 操作
+
+**按钮**
+- 行内 `开始就诊`（WAITING）
+- 行内 `完成就诊`（IN_PROGRESS）
+- `刷新`
+
+**交互**
+- 开始就诊后其他患者的“开始就诊”按钮禁用。
+
+---
+
+## 8.3 管理员页面
+
+### 门诊统计 `views/outpatient/statistics/index.vue`
+
+**指标卡字段**
+- 今日挂号人数
+- 今日已就诊人数
+- 今日收入
+- 当前排队人数
+
+**图表建议**
+- 7日挂号趋势（折线）
+- 收入趋势（柱状）
+
+**按钮**
+- `查询`
+- `导出统计`
+
+---
+
+## 9. 端到端交互标准（必须实现）
+
+## 9.1 链上写操作统一反馈
+每次创建/更新类操作必须有三态：
+1. 提交中（loading）
+2. 成功（提示 + tx_id）
+3. 失败（错误原因）
+
+示例文案：
+- `提交中（区块链确认中...）`
+- `操作成功（已上链）` 
+- `交易ID：xxx`
+
+## 9.2 幂等与防重复提交
+- 按钮提交后置灰，接口返回后恢复。
+- 同一业务主键在短时间内重复提交需后端拦截。
+
+## 9.3 查询一致性
+- 写操作成功后，前端主动刷新关联列表。
+- 列表默认按 `created_time desc`。
+
+---
+
+## 10. 链码函数建议（供 chaincode 开发）
+
+建议新增/扩展函数（命名风格与现有一致）：
+- `createOutpatientRegistration`
+- `cancelOutpatientRegistration`
+- `queryOutpatientRegistration`
+- `createScheduleSlot`
+- `queryScheduleSlot`
+- `createOutpatientPayment`
+- `payOutpatientOrder`
+- `queryOutpatientPayment`
+- `startOutpatientVisit`
+- `finishOutpatientVisit`
+- `queryOutpatientQueue`
+- `queryOutpatientRecord`
+
+并配套复合索引键：
+- `outpatient-registration-key`
+- `outpatient-registration-patient-index-key`
+- `outpatient-registration-doctor-index-key`
+- `outpatient-slot-key`
+- `outpatient-payment-key`
+- `outpatient-queue-doctor-index-key`
+
+---
+
+## 11. 验收标准（UAT）
+
+1. 能完成挂号 -> 支付 -> 排队 -> 就诊完成全流程演示。
+2. 每次关键写操作可返回并展示 `tx_id`。
+3. 状态机严格符合定义，无非法状态跳转。
+4. 可按患者/医生/日期查询门诊记录。
+5. 页面具备完整交互反馈（loading、成功、失败）。
+6. 数据从前端到链上全链路可追溯。
+
+---
+
+## 12. 分期实施建议
+
+- **M1（今天）**：链码数据结构 + 挂号/号源接口
+- **M2（今天）**：缴费 + 排队状态流转
+- **M3（今天）**：门诊记录聚合查询 + 前端主要页面
+- **M4（今天）**：统计页面 + 体验优化 + 联调验收
+
+---
+
+## 13. 与现有模块的衔接说明
+
+1. 与已有 `prescription` 模块联动：`finishOutpatientVisit` 后可触发处方创建入口。
+2. 与已有审计监控文档对齐：门诊关键行为需同步写审计事件。
+3. 与已有账号体系联动：使用当前 `AccountV2` 作为患者/医生身份来源。
+
+> 本文档作为门诊管理模块开发、联调、验收的统一标准。
