@@ -16,6 +16,11 @@ const (
 	PatientKey      = "patient-key"
 	InsuranceKey    = "insurance-key"
 	DrugKey         = "drug-key"
+
+	// Authorization 相关键
+	AuthorizationKey             = "authorization-key"
+	AuthorizationPatientIndexKey = "authorization-patient-index-key"
+	AuthorizationDoctorIndexKey  = "authorization-doctor-index-key"
 )
 
 // --------------------------------------------------------------------
@@ -106,6 +111,26 @@ type DrugOrder struct {
 type DrugStore struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// RecordAuthorization 病历授权记录
+// 状态说明：active=生效中、expired=已过期(查询计算态)、revoked=已撤销
+// 其中 expired 为查询展示态，账本内只持久化 active/revoked
+// 复合主键：AuthorizationKey(patient_id, record_id, auth_id)
+type RecordAuthorization struct {
+	ID           string `json:"id"`            // 授权ID
+	RecordID     string `json:"record_id"`     // 病历ID
+	PatientID    string `json:"patient_id"`    // 患者ID
+	DoctorID     string `json:"doctor_id"`     // 医生ID
+	HospitalName string `json:"hospital_name"` // 医院名称
+	Department   string `json:"department"`    // 科室
+	Scope        string `json:"scope"`         // 权限范围(read)
+	Status       string `json:"status"`        // active/revoked/expired(计算态)
+	StartTime    string `json:"start_time"`    // 开始时间 2006-01-02 15:04:05
+	EndTime      string `json:"end_time"`      // 截止时间 2006-01-02 15:04:05
+	CreatedTime  string `json:"created_time"`  // 创建时间
+	UpdatedTime  string `json:"updated_time"`  // 更新时间
+	Remark       string `json:"remark"`        // 备注
 }
 
 // Insurance 保险机构

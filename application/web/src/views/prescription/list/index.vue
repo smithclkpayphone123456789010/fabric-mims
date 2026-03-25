@@ -25,7 +25,14 @@
           <div class="item"><el-tag type="info">创建时间</el-tag><span class="ml">{{ val.created }}</span></div>
 
           <div class="actions">
-            <el-button type="primary" size="mini" @click="openDetail(val)">查看详情</el-button>
+            <el-button
+              type="primary"
+              size="mini"
+              :disabled="roles[0] === 'doctor' && val.doctor !== account_id"
+              @click="openDetail(val)"
+            >
+              查看详情
+            </el-button>
           </div>
         </el-card>
       </el-col>
@@ -67,6 +74,7 @@
 import { mapGetters } from 'vuex'
 import { queryAccountList } from '@/api/accountV2'
 import { queryPrescriptionList } from '@/api/prescription'
+import { checkRecordAccess } from '@/api/authorization'
 
 export default {
   name: 'Prescription',
@@ -100,9 +108,11 @@ export default {
   created() {
     Promise.all([
       queryAccountList(),
-      this.roles[0] === 'admin' || this.roles[0] === 'doctor'
+      this.roles[0] === 'admin'
         ? queryPrescriptionList()
-        : queryPrescriptionList({ patient: this.account_id })
+        : this.roles[0] === 'doctor'
+          ? queryPrescriptionList()
+          : queryPrescriptionList({ patient: this.account_id })
     ]).then(([accounts, prescriptions]) => {
       this.accountList = accounts || []
       this.prescriptionList = prescriptions || []
@@ -116,14 +126,34 @@ export default {
       return this.accountList.find(item => item.account_id === patientId) || {}
     },
     openDetail(item) {
-      this.detailItem = item
-      this.detailVisible = true
+      if (this.roles[0] !== 'doctor') {
+        this.detailItem = item
+        this.detailVisible = true
+        return
+      }
+      checkRecordAccess({ doctor_id: this.account_id, record_id: item.id }).then(() => {
+        this.detailItem = item
+        this.detailVisible = true
+      }).catch(() => {
+        this.$message.error('无权限查看该病历详情')
+      })
     },
     openFilePreview(item) {
-      const query = `file_path=${encodeURIComponent(item.file_path || '')}&file_name=${encodeURIComponent(item.file_name || '')}`
-      this.currentPreviewFileName = item.file_name || ''
-      this.previewUrl = `${process.env.VUE_APP_BASE_API}/previewPrescriptionFile?${query}`
-      this.previewVisible = true
+      const doPreview = () => {
+        const query = `doctor_id=${encodeURIComponent(this.roles[0] === 'doctor' ? this.account_id : '')}&record_id=${encodeURIComponent(item.id || '')}&file_path=${encodeURIComponent(item.file_path || '')}&file_name=${encodeURIComponent(item.file_name || '')}`
+        this.currentPreviewFileName = item.file_name || ''
+        this.previewUrl = `${process.env.VUE_APP_BASE_API}/previewPrescriptionFile?${query}`
+        this.previewVisible = true
+      }
+      if (this.roles[0] !== 'doctor') {
+        doPreview()
+        return
+      }
+      checkRecordAccess({ doctor_id: this.account_id, record_id: item.id }).then(() => {
+        doPreview()
+      }).catch(() => {
+        this.$message.error('无权限预览该病历文件')
+      })
     },
     isImageFile(name) {
       const lower = String(name || '').toLowerCase()

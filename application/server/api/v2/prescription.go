@@ -124,6 +124,7 @@ func QueryPrescriptionList(c *gin.Context) {
 		appG.Response(http.StatusBadRequest, "失败", fmt.Sprintf("参数出错%s", err.Error()))
 		return
 	}
+
 	var bodyBytes [][]byte
 	if body.Patient != "" {
 		bodyBytes = append(bodyBytes, []byte(body.Patient))
@@ -138,15 +139,72 @@ func QueryPrescriptionList(c *gin.Context) {
 		appG.Response(http.StatusInternalServerError, "失败", err.Error())
 		return
 	}
+
+	if body.DoctorID != "" {
+		allowedMap := make(map[string]bool)
+		accessResp, accessErr := bc.ChannelQuery("queryAccessibleRecordsByDoctor", [][]byte{[]byte(body.DoctorID), []byte(""), []byte(""), []byte(""), []byte(""), []byte("")})
+		if accessErr != nil {
+			appG.Response(http.StatusInternalServerError, "失败", accessErr.Error())
+			return
+		}
+		var accessList []map[string]interface{}
+		if err = json.Unmarshal(bytes.NewBuffer(accessResp.Payload).Bytes(), &accessList); err != nil {
+			appG.Response(http.StatusInternalServerError, "失败", err.Error())
+			return
+		}
+		for _, item := range accessList {
+			recordObj, ok := item["record"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			recordID, _ := recordObj["id"].(string)
+			if recordID != "" {
+				allowedMap[recordID] = true
+			}
+		}
+		filtered := make([]map[string]interface{}, 0)
+		for _, item := range data {
+			id, _ := item["id"].(string)
+			if allowedMap[id] {
+				filtered = append(filtered, item)
+			}
+		}
+		appG.Response(http.StatusOK, "成功", filtered)
+		return
+	}
+
 	appG.Response(http.StatusOK, "成功", data)
 }
 
 func PreviewPrescriptionFile(c *gin.Context) {
 	filePath := strings.TrimSpace(c.Query("file_path"))
 	fileName := strings.TrimSpace(c.Query("file_name"))
+	doctorID := strings.TrimSpace(c.Query("doctor_id"))
+	recordID := strings.TrimSpace(c.Query("record_id"))
 	if filePath == "" {
 		c.String(http.StatusBadRequest, "file_path不能为空")
 		return
+	}
+
+	if doctorID != "" {
+		if recordID == "" {
+			c.String(http.StatusBadRequest, "record_id不能为空")
+			return
+		}
+		accessResp, err := bc.ChannelQuery("checkRecordAccess", [][]byte{[]byte(doctorID), []byte(recordID)})
+		if err != nil {
+			c.String(http.StatusInternalServerError, "权限校验失败")
+			return
+		}
+		var accessData map[string]interface{}
+		if err = json.Unmarshal(bytes.NewBuffer(accessResp.Payload).Bytes(), &accessData); err != nil {
+			c.String(http.StatusInternalServerError, "权限校验失败")
+			return
+		}
+		if allowed, ok := accessData["allowed"].(bool); !ok || !allowed {
+			c.String(http.StatusForbidden, "无病历访问授权")
+			return
+		}
 	}
 
 	cleanPath := filepath.Clean(filePath)

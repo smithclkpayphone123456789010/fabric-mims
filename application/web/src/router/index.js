@@ -133,6 +133,26 @@ export const asyncRoutes = [
         }
       },
       {
+        path: 'accessible',
+        name: 'PrescriptionAccessible',
+        component: () => import('@/views/prescription/accessible/index'),
+        meta: {
+          roles: ['doctor'],
+          title: '可访问病历',
+          icon: 'donatingAll'
+        }
+      },
+      {
+        path: 'authorization',
+        name: 'PrescriptionAuthorization',
+        component: () => import('@/views/prescription/authorization/index'),
+        meta: {
+          roles: ['patient'],
+          title: '病历授权管理',
+          icon: 'donatingDonor'
+        }
+      },
+      {
         path: 'add',
         name: 'Add',
         component: () => import('@/views/prescription/add/index'),

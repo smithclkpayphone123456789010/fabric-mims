@@ -109,7 +109,7 @@ export default {
   created() {
     Promise.all([
       queryAccountList(),
-      this.roles[0] === 'doctor' ? queryPrescriptionList() : queryPrescriptionList({ patient: this.account_id })
+      this.roles[0] === 'doctor' ? queryPrescriptionList({ doctor_id: this.account_id }) : queryPrescriptionList({ patient: this.account_id })
     ]).then(([accounts, prescriptions]) => {
       this.accountList = accounts || []
       this.prescriptionList = prescriptions || []
@@ -140,7 +140,7 @@ export default {
     },
     openFilePreview(item) {
       if (!item) return
-      const query = `file_path=${encodeURIComponent(item.file_path || '')}&file_name=${encodeURIComponent(item.file_name || '')}`
+      const query = `doctor_id=${encodeURIComponent(this.roles[0] === 'doctor' ? this.account_id : '')}&record_id=${encodeURIComponent(item.id || '')}&file_path=${encodeURIComponent(item.file_path || '')}&file_name=${encodeURIComponent(item.file_name || '')}`
       this.currentPreviewFileName = item.file_name || ''
       this.previewUrl = `${process.env.VUE_APP_BASE_API}/previewPrescriptionFile?${query}`
       this.previewVisible = true

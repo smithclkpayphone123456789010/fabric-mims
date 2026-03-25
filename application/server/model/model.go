@@ -46,7 +46,8 @@ type PrescriptionRequestBody struct {
 }
 
 type PrescriptionQueryRequestBody struct {
-	Patient string `json:"patient"` // 患者AccountId
+	Patient  string `json:"patient"`   // 患者AccountId
+	DoctorID string `json:"doctor_id"` // 医生ID（按授权过滤）
 }
 
 // ----------------------         DrugOrder 药品订单   ----------------------------------
@@ -83,4 +84,45 @@ type UpdateInsuranceCoverRequestBody struct {
 	Patient        string `json:"patient"`         // 病人ID
 	InsuranceID    string `json:"insurance_id"`    // 保险机构ID
 	Status         string `json:"status"`          // 订单状态
+}
+
+// ----------------------         Authorization 病历授权   ----------------------------------
+
+type GrantRecordAuthorizationRequestBody struct {
+	PatientID    string `json:"patient_id"`
+	RecordID     string `json:"record_id"`
+	DoctorID     string `json:"doctor_id"`
+	HospitalName string `json:"hospital_name"`
+	Department   string `json:"department"`
+	EndTime      string `json:"end_time"`
+	Remark       string `json:"remark"`
+}
+
+type QueryMyAuthorizationsRequestBody struct {
+	PatientID string `json:"patient_id"`
+}
+
+type RevokeRecordAuthorizationRequestBody struct {
+	PatientID string `json:"patient_id"`
+	AuthID    string `json:"auth_id"`
+}
+
+type CheckRecordAccessRequestBody struct {
+	DoctorID string `json:"doctor_id" form:"doctor_id"`
+	RecordID string `json:"record_id" form:"record_id"`
+}
+
+type RenewRecordAuthorizationRequestBody struct {
+	PatientID string `json:"patient_id"`
+	AuthID    string `json:"auth_id"`
+	EndTime   string `json:"end_time"`
+}
+
+type QueryAccessibleRecordsByDoctorRequestBody struct {
+	DoctorID           string `json:"doctor_id"`
+	PatientNameKeyword string `json:"patient_name_keyword"`
+	IdCardKeyword      string `json:"id_card_keyword"`
+	RecordTypeKeyword  string `json:"record_type_keyword"`
+	CreatedStart       string `json:"created_start"`
+	CreatedEnd         string `json:"created_end"`
 }
