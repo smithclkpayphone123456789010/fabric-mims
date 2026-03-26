@@ -1,5 +1,12 @@
 #!/bin/bash
 
+set -e
+
+CHAINCODE_NAME=${CHAINCODE_NAME:-fabric-mims}
+CHAINCODE_VERSION=${CHAINCODE_VERSION:-1.0.2}
+CHANNEL_NAME=${CHANNEL_NAME:-appchannel}
+CC_SRC_DIR_IN_CONTAINER=/opt/gopath/src/ccsrc
+CC_PATH_FOR_INSTALL=ccsrc
 
 # 检查操作系统类型
 echo -e "\n"
@@ -53,6 +60,12 @@ docker-compose up -d
 echo "正在等待节点的启动完成，等待10秒"
 sleep 10
 
+echo "准备链码源码（宿主机 ../chaincode -> cli:${CC_SRC_DIR_IN_CONTAINER}）"
+docker exec cli bash -lc "rm -rf ${CC_SRC_DIR_IN_CONTAINER} && mkdir -p ${CC_SRC_DIR_IN_CONTAINER}"
+docker cp ../chaincode/. cli:${CC_SRC_DIR_IN_CONTAINER}
+docker exec cli bash -lc "ls -la ${CC_SRC_DIR_IN_CONTAINER}"
+docker exec cli bash -lc "cd ${CC_SRC_DIR_IN_CONTAINER} && GO111MODULE=off GOPATH=/opt/gopath go list ."
+
 TaobaoPeer0Cli="CORE_PEER_ADDRESS=peer0.taobao.com:7051 CORE_PEER_LOCALMSPID=TaobaoMSP CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/peer/taobao.com/users/Admin@taobao.com/msp"
 TaobaoPeer1Cli="CORE_PEER_ADDRESS=peer1.taobao.com:7051 CORE_PEER_LOCALMSPID=TaobaoMSP CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/peer/taobao.com/users/Admin@taobao.com/msp"
 JDPeer0Cli="CORE_PEER_ADDRESS=peer0.jd.com:7051 CORE_PEER_LOCALMSPID=JDMSP CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/peer/jd.com/users/Admin@jd.com/msp"
@@ -61,29 +74,31 @@ JDPeer1Cli="CORE_PEER_ADDRESS=peer1.jd.com:7051 CORE_PEER_LOCALMSPID=JDMSP CORE_
 echo -e "\n\n\n"
 echo "八、创建通道"
 echo "通道是Hyperledger Fabric中用于将多个组织的节点连接在一起的一种机制。通道中的所有节点共享相同的账本，并可以相互通信和交换数据"
-docker exec cli bash -c "$TaobaoPeer0Cli peer channel create -o orderer.qq.com:7050 -c appchannel -f /etc/hyperledger/config/appchannel.tx"
+docker exec cli bash -c "$TaobaoPeer0Cli peer channel create -o orderer.qq.com:7050 -c ${CHANNEL_NAME} -f /etc/hyperledger/config/appchannel.tx"
 
 echo -e "\n\n\n"
 echo "九、将所有节点加入通道"
-docker exec cli bash -c "$TaobaoPeer0Cli peer channel join -b appchannel.block"
-docker exec cli bash -c "$TaobaoPeer1Cli peer channel join -b appchannel.block"
-docker exec cli bash -c "$JDPeer0Cli peer channel join -b appchannel.block"
-docker exec cli bash -c "$JDPeer1Cli peer channel join -b appchannel.block"
+docker exec cli bash -c "$TaobaoPeer0Cli peer channel join -b ${CHANNEL_NAME}.block"
+docker exec cli bash -c "$TaobaoPeer1Cli peer channel join -b ${CHANNEL_NAME}.block"
+docker exec cli bash -c "$JDPeer0Cli peer channel join -b ${CHANNEL_NAME}.block"
+docker exec cli bash -c "$JDPeer1Cli peer channel join -b ${CHANNEL_NAME}.block"
 
 echo -e "\n\n\n"
 echo "十、更新锚节点"
 echo "锚节点是在通道中用于向其他节点传播配置信息的一种特殊节点。"
-docker exec cli bash -c "$TaobaoPeer0Cli peer channel update -o orderer.qq.com:7050 -c appchannel -f /etc/hyperledger/config/TaobaoAnchor.tx"
-docker exec cli bash -c "$JDPeer0Cli peer channel update -o orderer.qq.com:7050 -c appchannel -f /etc/hyperledger/config/JDAnchor.tx"
+docker exec cli bash -c "$TaobaoPeer0Cli peer channel update -o orderer.qq.com:7050 -c ${CHANNEL_NAME} -f /etc/hyperledger/config/TaobaoAnchor.tx"
+docker exec cli bash -c "$JDPeer0Cli peer channel update -o orderer.qq.com:7050 -c ${CHANNEL_NAME} -f /etc/hyperledger/config/JDAnchor.tx"
 
 # -n 链码名，可以自己随便设置
 # -v 版本号
 # -p 链码目录，在 /opt/gopath/src/ 目录下
 echo -e "\n\n\n"
-echo "十一、安装链码"
+echo "十一、安装链码 ${CHAINCODE_NAME}:${CHAINCODE_VERSION}"
 echo "链码是Hyperledger Fabric中的智能合约，用于实现业务逻辑和操作账本数据。"
-docker exec cli bash -c "$TaobaoPeer0Cli peer chaincode install -n fabric-mims -v 1.0.0 -l golang -p chaincode"
-docker exec cli bash -c "$JDPeer0Cli peer chaincode install -n fabric-mims -v 1.0.0 -l golang -p chaincode"
+docker exec cli bash -c "$TaobaoPeer0Cli GO111MODULE=off GOPATH=/opt/gopath peer chaincode install -n ${CHAINCODE_NAME} -v ${CHAINCODE_VERSION} -l golang -p ${CC_PATH_FOR_INSTALL}"
+docker exec cli bash -c "$TaobaoPeer1Cli GO111MODULE=off GOPATH=/opt/gopath peer chaincode install -n ${CHAINCODE_NAME} -v ${CHAINCODE_VERSION} -l golang -p ${CC_PATH_FOR_INSTALL}"
+docker exec cli bash -c "$JDPeer0Cli GO111MODULE=off GOPATH=/opt/gopath peer chaincode install -n ${CHAINCODE_NAME} -v ${CHAINCODE_VERSION} -l golang -p ${CC_PATH_FOR_INSTALL}"
+docker exec cli bash -c "$JDPeer1Cli GO111MODULE=off GOPATH=/opt/gopath peer chaincode install -n ${CHAINCODE_NAME} -v ${CHAINCODE_VERSION} -l golang -p ${CC_PATH_FOR_INSTALL}"
 
 # 只需要其中一个节点实例化
 # -n 对应上一步安装链码的名字
@@ -93,7 +108,7 @@ docker exec cli bash -c "$JDPeer0Cli peer chaincode install -n fabric-mims -v 1.
 echo -e "\n\n\n"
 echo "十二、实例化链码"
 echo "实例化链码是将链码部署到通道中并启动它的过程，它需要在所有的对等节点上进行。"
-docker exec cli bash -c "$TaobaoPeer0Cli peer chaincode instantiate -o orderer.qq.com:7050 -C appchannel -n fabric-mims -l golang -v 1.0.0 -c '{\"Args\":[\"init\"]}' -P \"AND ('TaobaoMSP.member','JDMSP.member')\""
+docker exec cli bash -c "$TaobaoPeer0Cli GO111MODULE=off GOPATH=/opt/gopath peer chaincode instantiate -o orderer.qq.com:7050 -C ${CHANNEL_NAME} -n ${CHAINCODE_NAME} -l golang -v ${CHAINCODE_VERSION} -c '{\"Args\":[\"init\"]}' -P \"AND ('TaobaoMSP.member','JDMSP.member')\""
 
 echo "正在等待链码实例化完成，等待5秒"
 sleep 5
@@ -102,9 +117,9 @@ sleep 5
 echo -e "\n\n\n"
 echo "十三、验证链码。在cli容器中进行链码交互，验证链码是否正确安装及区块链网络能否正常工作"
 echo "使用变量TaobaoPeer0Cli指定在peer0.taobao.com节点上执行调用链码的命令，并使用peer chaincode invoke命令调用链码。指定了链码的名称（fabric-mims）、通道的名称（appchannel）以及调用链码的函数和参数"
-docker exec cli bash -c "$TaobaoPeer0Cli peer chaincode invoke -C appchannel -n fabric-mims -c '{\"Args\":[\"hello\"]}'"
+docker exec cli bash -c "$TaobaoPeer0Cli peer chaincode invoke -C ${CHANNEL_NAME} -n ${CHAINCODE_NAME} -c '{\"Args\":[\"hello\"]}'"
 
-if docker exec cli bash -c "$JDPeer0Cli peer chaincode invoke -C appchannel -n fabric-mims -c '{\"Args\":[\"hello\"]}'" 2>&1 | grep "Chaincode invoke successful"; then
+if docker exec cli bash -c "$JDPeer0Cli peer chaincode invoke -C ${CHANNEL_NAME} -n ${CHAINCODE_NAME} -c '{\"Args\":[\"hello\"]}'" 2>&1 | grep "Chaincode invoke successful"; then
   echo "[Successful] network 部署成功。后续如需暂时停止运行，可以执行 docker-compose stop 命令（数据已持久化保存在Docker Volume中，不会丢失数据）。"
   exit 0
 fi

@@ -676,6 +676,28 @@ type QueryOutpatientRecordListResponse struct {
 
 ---
 
+
+
+##figma链接
+
+患者端-就诊（就诊菜单中有挂号预约，我的预约，缴费管理，排队叫号）: 
+            1.挂号预约主页:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-3369&t=3eQfsh64QhBE03pE-4
+            2.挂号预约的立即挂号:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-3599&t=3eQfsh64QhBE03pE-4
+            3.点击确认挂号后:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-4113&t=3eQfsh64QhBE03pE-4
+            4.我的预约:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-3375&t=3eQfsh64QhBE03pE-4
+            5.缴费管理:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-4333&t=3eQfsh64QhBE03pE-4
+            6.排队叫号:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=19-4485&t=3eQfsh64QhBE03pE-4
+
+医生端-就诊（就诊菜单中有号源管理，就诊队列）:
+            1.号源管理:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=20-4628&t=3eQfsh64QhBE03pE-4
+            2.点击发布号源后:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=20-5059&t=3eQfsh64QhBE03pE-4
+            3.就诊队列管理:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=20-5524&t=3eQfsh64QhBE03pE-4
+
+管理员端-门诊数据统计:
+            1.门诊数据统计:https://www.figma.com/design/FWpa45vEwEaECbbOdYDCoN/Untitled?node-id=20-5856&t=3eQfsh64QhBE03pE-4
+
+            
+
 ## 11. 验收标准（UAT）
 
 1. 能完成挂号 -> 支付 -> 排队 -> 就诊完成全流程演示。
@@ -691,7 +713,7 @@ type QueryOutpatientRecordListResponse struct {
 
 - **M1（今天）**：链码数据结构 + 挂号/号源接口
 - **M2（今天）**：缴费 + 排队状态流转
-- **M3（今天）**：门诊记录聚合查询 + 前端主要页面
+- **M3（今天）**：门诊记录聚合查询 + 前端主要页面（根据figma链接设计开发）
 - **M4（今天）**：统计页面 + 体验优化 + 联调验收
 
 ---

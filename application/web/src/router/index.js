@@ -262,6 +262,76 @@ export const asyncRoutes = [
       }]
   },
 
+  {
+    path: '/outpatient',
+    component: Layout,
+    redirect: '/outpatient/register',
+    name: 'Outpatient',
+    alwaysShow: true,
+    meta: {
+      roles: ['admin', 'doctor', 'patient'],
+      title: '就诊',
+      icon: 'donating'
+    },
+    children: [
+      {
+        path: 'register',
+        name: 'OutpatientRegister',
+        component: () => import('@/views/outpatient/register/index'),
+        meta: { roles: ['admin', 'patient'], title: '挂号预约', icon: 'addRealestate' }
+      },
+      {
+        path: 'my-registration',
+        name: 'OutpatientMyRegistration',
+        component: () => import('@/views/outpatient/my-registration/index'),
+        meta: { roles: ['admin', 'patient'], title: '我的预约', icon: 'donatingAll' }
+      },
+      {
+        path: 'payment',
+        name: 'OutpatientPayment',
+        component: () => import('@/views/outpatient/payment/index'),
+        meta: { roles: ['admin', 'patient'], title: '缴费管理', icon: 'donatingDonor' }
+      },
+      {
+        path: 'queue',
+        name: 'OutpatientQueue',
+        component: () => import('@/views/outpatient/queue/index'),
+        meta: { roles: ['admin', 'patient'], title: '排队叫号', icon: 'donatingAll' }
+      },
+      {
+        path: 'slot',
+        name: 'OutpatientSlot',
+        component: () => import('@/views/outpatient/slot/index'),
+        meta: { roles: ['admin', 'doctor'], title: '号源管理', icon: 'addRealestate' }
+      },
+      {
+        path: 'doctor-queue',
+        name: 'OutpatientDoctorQueue',
+        component: () => import('@/views/outpatient/doctor-queue/index'),
+        meta: { roles: ['admin', 'doctor'], title: '就诊队列', icon: 'donatingAll' }
+      },
+      {
+        path: 'statistics',
+        name: 'OutpatientStatistics',
+        component: () => import('@/views/outpatient/statistics/index'),
+        meta: { roles: ['admin'], title: '门诊数据统计', icon: 'donatingAll' }
+      }
+    ]
+  },
+
+  {
+    path: '/ai-health-assistant',
+    component: Layout,
+    children: [
+      {
+        path: '',
+        name: 'AIHealthAssistant',
+        component: () => import('@/views/ai-health-assistant/index'),
+        meta: { roles: ['admin', 'doctor', 'patient'], title: 'AI健康助手', icon: 'donatingAll' }
+      }
+    ]
+  },
+
   // 404 page must be placed at the end !!!
   {
     path: '*',

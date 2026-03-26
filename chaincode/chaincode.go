@@ -79,6 +79,28 @@ func (t *BlockChainMedicalInfoManageSystem) Invoke(stub shim.ChaincodeStubInterf
 		return api.QueryAccessibleRecordsByDoctor(stub, args)
 	case "checkRecordAccess":
 		return api.CheckRecordAccess(stub, args)
+	case "createScheduleSlot":
+		return api.CreateScheduleSlot(stub, args)
+	case "queryScheduleSlot":
+		return api.QueryScheduleSlot(stub, args)
+	case "createOutpatientRegistration":
+		return api.CreateOutpatientRegistration(stub, args)
+	case "cancelOutpatientRegistration":
+		return api.CancelOutpatientRegistration(stub, args)
+	case "queryOutpatientRegistration":
+		return api.QueryOutpatientRegistration(stub, args)
+	case "queryOutpatientPayment":
+		return api.QueryOutpatientPayment(stub, args)
+	case "payOutpatientOrder":
+		return api.PayOutpatientOrder(stub, args)
+	case "queryOutpatientQueue":
+		return api.QueryOutpatientQueue(stub, args)
+	case "startOutpatientVisit":
+		return api.StartOutpatientVisit(stub, args)
+	case "finishOutpatientVisit":
+		return api.FinishOutpatientVisit(stub, args)
+	case "queryOutpatientRecord":
+		return api.QueryOutpatientRecord(stub, args)
 	default:
 		return shim.Error(fmt.Sprintf("没有该功能: %s", funcName))
 	}

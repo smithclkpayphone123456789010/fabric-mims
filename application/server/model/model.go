@@ -152,3 +152,71 @@ type QueryAccessibleRecordsByDoctorRequestBody struct {
 	CreatedStart       string `json:"created_start"`
 	CreatedEnd         string `json:"created_end"`
 }
+
+// ----------------------         Outpatient 门诊管理   ----------------------------------
+
+type CreateOutpatientRegistrationRequestBody struct {
+	PatientID    string `json:"patient_id"`
+	DoctorID     string `json:"doctor_id"`
+	DepartmentID string `json:"department_id"`
+	SlotID       string `json:"slot_id"`
+	VisitDate    string `json:"visit_date"`
+}
+
+type CancelOutpatientRegistrationRequestBody struct {
+	RegistrationID string `json:"registration_id"`
+	OperatorID     string `json:"operator_id"`
+}
+
+type QueryOutpatientRegistrationRequestBody struct {
+	PatientID string `json:"patient_id" form:"patient_id"`
+	DoctorID  string `json:"doctor_id" form:"doctor_id"`
+	Status    string `json:"status" form:"status"`
+}
+
+type CreateScheduleSlotRequestBody struct {
+	DoctorID     string `json:"doctor_id"`
+	DepartmentID string `json:"department_id"`
+	VisitDate    string `json:"visit_date"`
+	StartTime    string `json:"start_time"`
+	EndTime      string `json:"end_time"`
+	Capacity     int    `json:"capacity"`
+}
+
+type QueryScheduleSlotRequestBody struct {
+	DepartmentID string `json:"department_id" form:"department_id"`
+	DoctorID     string `json:"doctor_id" form:"doctor_id"`
+	VisitDate    string `json:"visit_date" form:"visit_date"`
+}
+
+type QueryOutpatientPaymentRequestBody struct {
+	PatientID string `json:"patient_id" form:"patient_id"`
+	Status    string `json:"status" form:"status"`
+}
+
+type PayOutpatientOrderRequestBody struct {
+	PaymentID  string `json:"payment_id"`
+	PatientID  string `json:"patient_id"`
+	PayChannel string `json:"pay_channel"`
+}
+
+type QueryOutpatientQueueRequestBody struct {
+	DoctorID string `json:"doctor_id" form:"doctor_id"`
+}
+
+type StartVisitRequestBody struct {
+	RegistrationID string `json:"registration_id"`
+	DoctorID       string `json:"doctor_id"`
+}
+
+type FinishVisitRequestBody struct {
+	RegistrationID string `json:"registration_id"`
+	DoctorID       string `json:"doctor_id"`
+}
+
+type QueryOutpatientRecordRequestBody struct {
+	PatientID string `json:"patient_id" form:"patient_id"`
+	DoctorID  string `json:"doctor_id" form:"doctor_id"`
+	StartDate string `json:"start_date" form:"start_date"`
+	EndDate   string `json:"end_date" form:"end_date"`
+}

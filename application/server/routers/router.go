@@ -29,6 +29,29 @@ func InitRouter() *gin.Engine {
 		apiV2.POST("/queryMyAuthorizations", v2.QueryMyAuthorizations)
 		apiV2.POST("/queryAccessibleRecordsByDoctor", v2.QueryAccessibleRecordsByDoctor)
 		apiV2.POST("/checkRecordAccess", v2.CheckRecordAccess)
+
+		apiV2.POST("/outpatient/registration/create", v2.CreateOutpatientRegistration)
+		apiV2.POST("/outpatient/registration/cancel", v2.CancelOutpatientRegistration)
+		apiV2.GET("/outpatient/registration/list", v2.QueryOutpatientRegistration)
+
+		apiV2.POST("/outpatient/slot/create", v2.CreateScheduleSlot)
+		apiV2.GET("/outpatient/slot/list", v2.QueryScheduleSlot)
+
+		apiV2.GET("/outpatient/payment/list", v2.QueryOutpatientPayment)
+		apiV2.POST("/outpatient/payment/pay", v2.PayOutpatientOrder)
+
+		apiV2.GET("/outpatient/queue/current", v2.QueryOutpatientQueue)
+		apiV2.POST("/outpatient/queue/start", v2.StartOutpatientVisit)
+		apiV2.POST("/outpatient/queue/finish", v2.FinishOutpatientVisit)
+
+		apiV2.GET("/outpatient/record/list", v2.QueryOutpatientRecord)
+
+		apiV2.POST("/ai/chat", v2.AIChat)
+		apiV2.POST("/ai/triage", v2.AITriage)
+		apiV2.POST("/ai/rehab-companion", v2.AIRehabCompanion)
+		apiV2.POST("/ai/report-translator", v2.AIReportTranslator)
+		apiV2.GET("/ai/sessions", v2.AIGetSessions)
+		apiV2.GET("/ai/session/:id/messages", v2.AIGetSessionMessages)
 	}
 	return r
 }

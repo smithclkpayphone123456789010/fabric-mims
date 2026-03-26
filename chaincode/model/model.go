@@ -21,6 +21,13 @@ const (
 	AuthorizationKey             = "authorization-key"
 	AuthorizationPatientIndexKey = "authorization-patient-index-key"
 	AuthorizationDoctorIndexKey  = "authorization-doctor-index-key"
+
+	OutpatientRegistrationKey           = "outpatient-registration-key"
+	OutpatientRegistrationPatientIdxKey = "outpatient-registration-patient-index-key"
+	OutpatientRegistrationDoctorIdxKey  = "outpatient-registration-doctor-index-key"
+	OutpatientSlotKey                   = "outpatient-slot-key"
+	OutpatientPaymentKey                = "outpatient-payment-key"
+	OutpatientQueueDoctorIdxKey         = "outpatient-queue-doctor-index-key"
 )
 
 // --------------------------------------------------------------------
@@ -157,6 +164,71 @@ type RecordAuthorization struct {
 	CreatedTime  string `json:"created_time"`  // 创建时间
 	UpdatedTime  string `json:"updated_time"`  // 更新时间
 	Remark       string `json:"remark"`        // 备注
+}
+
+// OutpatientRegistration 门诊挂号
+// 状态：BOOKED/CANCELLED/VISITED
+// 费用状态：UNPAID/PAID
+type OutpatientRegistration struct {
+	ID             string `json:"id"`
+	PatientID      string `json:"patient_id"`
+	DoctorID       string `json:"doctor_id"`
+	DepartmentID   string `json:"department_id"`
+	ScheduleSlotID string `json:"schedule_slot_id"`
+	VisitDate      string `json:"visit_date"`
+	Status         string `json:"status"`
+	FeeAmount      string `json:"fee_amount"`
+	FeeStatus      string `json:"fee_status"`
+	QueueNo        string `json:"queue_no"`
+	CreatedTime    string `json:"created_time"`
+	UpdatedTime    string `json:"updated_time"`
+	TxID           string `json:"tx_id"`
+}
+
+// OutpatientScheduleSlot 门诊号源
+// 状态：OPEN/CLOSED
+type OutpatientScheduleSlot struct {
+	ID           string `json:"id"`
+	DoctorID     string `json:"doctor_id"`
+	DepartmentID string `json:"department_id"`
+	VisitDate    string `json:"visit_date"`
+	StartTime    string `json:"start_time"`
+	EndTime      string `json:"end_time"`
+	Capacity     int    `json:"capacity"`
+	BookedCount  int    `json:"booked_count"`
+	Status       string `json:"status"`
+	CreatedTime  string `json:"created_time"`
+	UpdatedTime  string `json:"updated_time"`
+	TxID         string `json:"tx_id"`
+}
+
+// OutpatientPayment 门诊缴费
+// 状态：UNPAID/PAID
+type OutpatientPayment struct {
+	ID             string `json:"id"`
+	OrderType      string `json:"order_type"`
+	RegistrationID string `json:"registration_id"`
+	PatientID      string `json:"patient_id"`
+	Amount         string `json:"amount"`
+	Status         string `json:"status"`
+	PaidTime       string `json:"paid_time"`
+	CreatedTime    string `json:"created_time"`
+	TxID           string `json:"tx_id"`
+}
+
+// OutpatientQueueItem 门诊排队
+// 状态：WAITING/IN_PROGRESS/DONE
+type OutpatientQueueItem struct {
+	ID             string `json:"id"`
+	RegistrationID string `json:"registration_id"`
+	DoctorID       string `json:"doctor_id"`
+	PatientID      string `json:"patient_id"`
+	QueueNo        string `json:"queue_no"`
+	Status         string `json:"status"`
+	CalledTime     string `json:"called_time"`
+	FinishedTime   string `json:"finished_time"`
+	CreatedTime    string `json:"created_time"`
+	TxID           string `json:"tx_id"`
 }
 
 // Insurance 保险机构
