@@ -50,36 +50,49 @@
 
           <div class="quick-row">
             <span class="quick-label">快捷咨询：</span>
-            <el-button size="mini" :type="focusMode==='triage' ? 'primary' : 'default'" :plain="focusMode!=='triage'" @click="focusMode='triage'">症状导诊</el-button>
-            <el-button size="mini" :type="focusMode==='rehab' ? 'primary' : 'default'" :plain="focusMode!=='rehab'" @click="focusMode='rehab'">个性化康复伴行</el-button>
-            <el-button size="mini" :type="focusMode==='translator' ? 'primary' : 'default'" :plain="focusMode!=='translator'" @click="focusMode='translator'">检查报告翻译官</el-button>
+            <el-button size="mini" :type="focusMode==='triage' ? 'primary' : 'default'" :plain="focusMode!=='triage'" @click="toggleMode('triage')">症状导诊</el-button>
+            <el-button size="mini" :type="focusMode==='rehab' ? 'primary' : 'default'" :plain="focusMode!=='rehab'" @click="toggleMode('rehab')">个性化康复伴行</el-button>
+            <el-button size="mini" :type="focusMode==='translator' ? 'primary' : 'default'" :plain="focusMode!=='translator'" @click="toggleMode('translator')">检查报告翻译官</el-button>
           </div>
 
           <div class="guide-card">
             <div class="guide-title">
-              <span>💡 提问引导</span>
+              <span>💡 功能说明与提问引导</span>
               <i class="el-icon-arrow-up" />
             </div>
             <div v-if="focusMode==='triage'" class="guide-text">
+              <b>症状导诊 · 功能作用：</b><br>
+              根据你描述的症状，评估风险等级，并给出可执行建议与推荐就诊科室，帮助你更快判断“该挂哪个科、是否需要尽快就医”。<br><br>
+              <b>建议这样提问：</b><br>
               1) 主要症状（例如：胸闷、发热、头晕）<br>
               2) 持续时间（多久了）<br>
               3) 严重程度（轻/中/重，是否加重）<br>
-              4) 伴随症状（如气短、头晕、恶心）<br>
+              4) 伴随症状（如气短、恶心）<br>
               5) 既往病史与用药（如高血压、糖尿病）<br>
               6) 特殊情况（孕期、过敏史、近期手术）
             </div>
             <div v-else-if="focusMode==='rehab'" class="guide-text">
+              <b>个性化康复伴行 · 功能作用：</b><br>
+              基于你选择的病历，生成用药提醒、复诊建议和注意事项说明，帮助你在就诊后持续跟踪恢复情况。<br><br>
+              <b>建议这样提问：</b><br>
               1) 当前最不舒服的症状<br>
               2) 症状持续多久、是否加重<br>
               3) 当前正在服用的药物与频次<br>
               4) 最近一次复诊/检查时间<br>
               5) 你最关心的问题（如“什么时候复诊最合适”）
             </div>
-            <div v-else class="guide-text">
+            <div v-else-if="focusMode==='translator'" class="guide-text">
+              <b>检查报告“翻译官” · 功能作用：</b><br>
+              对你选定病历中的诊断信息、检查结果和治疗方案进行非诊断型大白话解释，帮你看懂报告在说什么。<br><br>
+              <b>建议这样提问：</b><br>
               1) 你想重点看哪部分（诊断结果/处方用药/治疗方案）<br>
               2) 哪些术语看不懂<br>
               3) 你最关心的问题（例如“严重吗？要不要马上复查？”）<br>
               4) 是否有医生当面给过补充说明
+            </div>
+            <div v-else class="guide-text normal-chat">
+              当前未选中快捷功能，将按普通AI对话模式回复。<br>
+              你可以直接输入任何问题与AI交流，也可再次点击上方按钮启用对应功能。
             </div>
 
             <div class="example-head">
@@ -175,7 +188,7 @@ export default {
       lastFocusMode: 'triage',
       lastAssistantMessageId: '',
       lastUserMessageId: '',
-      focusMode: 'triage',
+      focusMode: '',
       recordDialogVisible: false
     }
   },
@@ -197,6 +210,9 @@ export default {
       if (e.shiftKey) return
       e.preventDefault()
       this.send()
+    },
+    toggleMode(mode) {
+      this.focusMode = this.focusMode === mode ? '' : mode
     },
     scheduleScrollBottom() {
       if (this._scrollRaf) return
