@@ -256,6 +256,82 @@ var InsuranceStatusConstant = func() map[string]string {
 	}
 }
 
+// ----------------------         Audit 审计监控   ----------------------------------
+
+// AuditEvent 审计事件
+type AuditEvent struct {
+	ID              string `json:"id"`                // 事件ID
+	EventType       string `json:"event_type"`        // 事件类型
+	EventLevel      string `json:"event_level"`       // L1/L2/L3
+	EventTime       string `json:"event_time"`        // 2006-01-02 15:04:05
+	ActorID         string `json:"actor_id"`          // 操作者ID
+	OrgID           string `json:"org_id"`            // 机构ID
+	TargetPatientID string `json:"target_patient_id"` // 目标患者ID
+	TargetRecordID  string `json:"target_record_id"`  // 目标病历ID
+	TxID            string `json:"tx_id"`             // 关联交易哈希
+	ChaincodeFunc   string `json:"chaincode_func"`    // 关联链码函数
+	RequestPath     string `json:"request_path"`      // 请求路径
+	RequestMethod   string `json:"request_method"`    // 请求方法
+	RequestID       string `json:"request_id"`        // 请求追踪ID
+	TraceID         string `json:"trace_id"`          // 链路追踪ID
+	ClientIP        string `json:"client_ip"`         // 客户端IP
+	UserAgent       string `json:"user_agent"`        // 用户代理
+	ActionResult    string `json:"action_result"`     // SUCCESS/FAIL
+	FailReason      string `json:"fail_reason"`       // 失败原因
+	DetailJSON      string `json:"detail_json"`       // 详情JSON
+	HashPrev        string `json:"hash_prev"`         // 上一条哈希
+	HashCurrent     string `json:"hash_current"`      // 当前哈希
+}
+
+// AuditAlert 告警
+type AuditAlert struct {
+	ID              string `json:"id"`
+	RuleCode        string `json:"rule_code"`
+	Level           string `json:"level"`  // HIGH/MEDIUM/LOW
+	Status          string `json:"status"` // NEW/ACKED/RESOLVED
+	TriggerTime     string `json:"trigger_time"`
+	EventID         string `json:"event_id"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	Description     string `json:"description"`
+	HandleTime      string `json:"handle_time"`
+	HandleNote      string `json:"handle_note"`
+}
+
+// AuditExportTask 导出任务
+type AuditExportTask struct {
+	ID         string `json:"id"`
+	CreatorID  string `json:"creator_id"`
+	CreateTime string `json:"create_time"`
+	Status     string `json:"status"` // PENDING/RUNNING/SUCCESS/FAIL
+	Format     string `json:"format"`
+	FilterJSON string `json:"filter_json"`
+	FileName   string `json:"file_name"`
+	FileHash   string `json:"file_hash"`
+	FailReason string `json:"fail_reason"`
+	FinishTime string `json:"finish_time"`
+}
+
+// 审计复合键常量
+const (
+	AuditEventKey             = "audit-event-key"
+	AuditEventTimeIndexKey    = "audit-event-time-index-key"
+	AuditEventTypeIndexKey    = "audit-event-type-index-key"
+	AuditEventActorIndexKey   = "audit-event-actor-index-key"
+	AuditEventPatientIndexKey = "audit-event-patient-index-key"
+	AuditEventRecordIndexKey  = "audit-event-record-index-key"
+	AuditEventTxIndexKey      = "audit-event-tx-index-key"
+	AuditEventHashChainKey    = "audit-event-hash-chain-key" // 存储最后一条哈希
+
+	AuditAlertKey            = "audit-alert-key"
+	AuditAlertStatusIndexKey = "audit-alert-status-index-key"
+	AuditAlertLevelIndexKey  = "audit-alert-level-index-key"
+
+	AuditExportTaskKey            = "audit-export-task-key"
+	AuditExportTaskStatusIndexKey = "audit-export-task-status-index-key"
+)
+
 // DrugStatusConstant 药品状态
 //var DrugStatusConstant = func() map[string]string {
 //	return map[string]string{

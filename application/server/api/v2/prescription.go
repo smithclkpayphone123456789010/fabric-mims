@@ -149,7 +149,60 @@ func CreatePrescription(c *gin.Context) {
 		appG.Response(http.StatusInternalServerError, "失败", err.Error())
 		return
 	}
+
+	// 记录审计日志（goroutine中无法使用c，需提前捕获变量）
+	txID := string(resp.TransactionID)
+	actorID := c.GetString("account_id")
+	if actorID == "" {
+		actorID = "0feceb66ffc1"
+	}
+	requestPath := c.Request.URL.Path
+	requestMethod := c.Request.Method
+	clientIP := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+
+	go recordAuditEvent(actorID, "CREATE_RECORD", "L1", "SUCCESS", body.Patient, "", txID,
+		"createPrescription", requestPath, requestMethod, clientIP, userAgent, map[string]interface{}{
+			"record_id":   data["id"],
+			"doctor":      body.Doctor,
+			"patient":     body.Patient,
+			"record_type": body.RecordType,
+		}, "")
+
 	appG.Response(http.StatusOK, "成功", data)
+}
+
+// recordAuditEvent 记录审计事件
+func recordAuditEvent(actorID, eventType, eventLevel, actionResult, targetPatientID, targetRecordID, txID, chaincodeFunc, requestPath, requestMethod, clientIP, userAgent string, detail map[string]interface{}, failReason string) {
+	detailJSON, _ := json.Marshal(detail)
+
+	event := map[string]interface{}{
+		"event_type":        eventType,
+		"event_level":       eventLevel,
+		"actor_id":          actorID,
+		"target_patient_id": targetPatientID,
+		"target_record_id":  targetRecordID,
+		"tx_id":             txID,
+		"chaincode_func":    chaincodeFunc,
+		"request_path":      requestPath,
+		"request_method":    requestMethod,
+		"client_ip":         clientIP,
+		"user_agent":        userAgent,
+		"action_result":     actionResult,
+		"detail_json":       string(detailJSON),
+		"fail_reason":       failReason,
+	}
+
+	eventBytes, _ := json.Marshal(event)
+
+	// 调用链码写入审计日志
+	resp, err := bc.ChannelExecute("createAuditEvent", [][]byte{eventBytes})
+	if err != nil {
+		fmt.Printf("[AUDIT ERROR] createAuditEvent failed: %v\n", err)
+		return
+	}
+
+	fmt.Printf("[AUDIT DEBUG] createAuditEvent success, txID=%s, payload=%s\n", txID, string(resp.Payload))
 }
 
 func QueryPrescriptionList(c *gin.Context) {

@@ -58,7 +58,7 @@
 
       <el-button :loading="loading" type="primary" class="login-btn" @click.native.prevent="handleLogin">登录</el-button>
 
-      <div class="tips">请选择不同的用户角色体验系统</div>
+      <div class="tips">请选择不同的用户角色</div>
     </el-form>
   </div>
 </template>
@@ -82,9 +82,7 @@ export default {
       roleDefs: [
         { key: 'admin', label: '管理员', roleValue: 'admin', keywords: ['管理员'] },
         { key: 'doctor', label: '医生', roleValue: 'doctor', keywords: ['医生'] },
-        { key: 'patient', label: '患者', roleValue: 'patient', keywords: ['病人', '患者'] },
-        { key: 'drugstore', label: '药店', roleValue: 'drugstore', keywords: ['药店'] },
-        { key: 'insurance', label: '医疗保险', roleValue: 'insurance', keywords: ['保险'] }
+        { key: 'patient', label: '患者', roleValue: 'patient', keywords: ['病人', '患者'] }
       ],
       hospitals: ['北京协和医院', '华西医院', '上海交通大学医学院附属瑞金医院', '广东省人民医院'],
       pharmacies: ['国大药房', '益丰大药房', '老百姓大药房', '大参林药店']
@@ -220,7 +218,7 @@ export default {
 
   .role-tabs {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 6px;
     padding: 16px 20px 8px;
 

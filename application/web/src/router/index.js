@@ -107,7 +107,7 @@ export const asyncRoutes = [
     name: 'Prescription',
     alwaysShow: true,
     meta: {
-      roles: ['admin','doctor','patient'],
+      roles: ['doctor','patient'],
       title: '病历',
       icon: 'donating'
     },
@@ -172,7 +172,7 @@ export const asyncRoutes = [
     name: 'Insurance',
     alwaysShow: true,
     meta: {
-      roles: ['admin','insurance','patient'],
+      roles: ['insurance'],
       title: '保险报销',
       icon: 'donating'
     },
@@ -226,7 +226,7 @@ export const asyncRoutes = [
     name: 'Drug',
     alwaysShow: true,
     meta: {
-      roles: ['admin','drugstore','patient'],
+      roles: ['drugstore'],
       title: '药品订单',
       icon: 'donating'
     },
@@ -328,6 +328,31 @@ export const asyncRoutes = [
         name: 'AIHealthAssistant',
         component: () => import('@/views/ai-health-assistant/index'),
         meta: { roles: ['admin', 'doctor', 'patient'], title: 'AI健康助手', icon: 'donatingAll' }
+      }
+    ]
+  },
+
+  {
+    path: '/audit',
+    component: Layout,
+    redirect: '/audit/search',
+    name: 'Audit',
+    alwaysShow: true,
+    meta: {
+      roles: ['admin'],
+      title: '审计监控',
+      icon: 'donating'
+    },
+    children: [
+      {
+        path: 'search',
+        name: 'AuditSearch',
+        component: () => import('@/views/audit/search/index'),
+        meta: {
+          roles: ['admin'],
+          title: '审计检索',
+          icon: 'donatingAll'
+        }
       }
     ]
   },

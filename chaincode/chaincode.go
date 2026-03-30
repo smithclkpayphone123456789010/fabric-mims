@@ -101,6 +101,35 @@ func (t *BlockChainMedicalInfoManageSystem) Invoke(stub shim.ChaincodeStubInterf
 		return api.FinishOutpatientVisit(stub, args)
 	case "queryOutpatientRecord":
 		return api.QueryOutpatientRecord(stub, args)
+	// ---------------------- 审计监控模块 ----------------------
+	case "createAuditEvent":
+		return api.CreateAuditEvent(stub, args)
+	case "getAuditEventByID":
+		return api.GetAuditEventByID(stub, args)
+	case "getAuditEventsByCompositeKey":
+		return api.GetAuditEventsByCompositeKey(stub, args)
+	case "getAuditEventStats":
+		return api.GetAuditEventStats(stub, args)
+	case "createAuditAlert":
+		return api.CreateAuditAlert(stub, args)
+	case "getAuditAlertByID":
+		return api.GetAuditAlertByID(stub, args)
+	case "getAuditAlertsByCompositeKey":
+		return api.GetAuditAlertsByCompositeKey(stub, args)
+	case "ackAuditAlert":
+		return api.AckAlert(stub, args)
+	case "resolveAuditAlert":
+		return api.ResolveAlert(stub, args)
+	case "getAuditAlertStats":
+		return api.GetAuditAlertStats(stub, args)
+	case "createAuditExportTask":
+		return api.CreateAuditExportTask(stub, args)
+	case "getAuditExportTaskByID":
+		return api.GetAuditExportTaskByID(stub, args)
+	case "getAuditExportTasksByStatus":
+		return api.GetAuditExportTasksByStatus(stub, args)
+	case "updateAuditExportTaskStatus":
+		return api.UpdateAuditExportTaskStatus(stub, args)
 	default:
 		return shim.Error(fmt.Sprintf("没有该功能: %s", funcName))
 	}

@@ -220,3 +220,157 @@ type QueryOutpatientRecordRequestBody struct {
 	StartDate string `json:"start_date" form:"start_date"`
 	EndDate   string `json:"end_date" form:"end_date"`
 }
+
+// ----------------------         Audit 审计监控   ----------------------------------
+
+type AuditEventRequestBody struct {
+	EventType       string `json:"event_type" form:"event_type"`
+	EventLevel      string `json:"event_level" form:"event_level"`
+	ActionResult    string `json:"action_result" form:"action_result"`
+	TargetPatientID string `json:"target_patient_id" form:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id" form:"target_record_id"`
+	DetailJSON      string `json:"detail_json" form:"detail_json"`
+	FailReason      string `json:"fail_reason" form:"fail_reason"`
+}
+
+type AuditEventListRequestBody struct {
+	StartTime       string `form:"start_time" json:"start_time"`
+	EndTime         string `form:"end_time" json:"end_time"`
+	EventType       string `form:"event_type" json:"event_type"`
+	EventLevel      string `form:"event_level" json:"event_level"`
+	ActionResult    string `form:"action_result" json:"action_result"`
+	TargetPatientID string `form:"target_patient_id" json:"target_patient_id"`
+	TargetRecordID  string `form:"target_record_id" json:"target_record_id"`
+	TxID            string `form:"tx_id" json:"tx_id"`
+	Keyword         string `form:"keyword" json:"keyword"`
+	Page            int    `form:"page" json:"page"`
+	Size            int    `form:"size" json:"size"`
+}
+
+type AuditEventItem struct {
+	ID              string `json:"id"`
+	EventType       string `json:"event_type"`
+	EventLevel      string `json:"event_level"`
+	EventTime       string `json:"event_time"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	ActionResult    string `json:"action_result"`
+	TxID            string `json:"tx_id"`
+	RequestPath     string `json:"request_path"`
+	Message         string `json:"message"`
+}
+
+type AuditEventDetailResponse struct {
+	ID              string `json:"id"`
+	EventType       string `json:"event_type"`
+	EventLevel      string `json:"event_level"`
+	EventTime       string `json:"event_time"`
+	ActorID         string `json:"actor_id"`
+	OrgID           string `json:"org_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	TxID            string `json:"tx_id"`
+	ChaincodeFunc   string `json:"chaincode_func"`
+	RequestPath     string `json:"request_path"`
+	RequestMethod   string `json:"request_method"`
+	RequestID       string `json:"request_id"`
+	TraceID         string `json:"trace_id"`
+	ClientIP        string `json:"client_ip"`
+	UserAgent       string `json:"user_agent"`
+	ActionResult    string `json:"action_result"`
+	FailReason      string `json:"fail_reason"`
+	DetailJSON      string `json:"detail_json"`
+	HashPrev        string `json:"hash_prev"`
+	HashCurrent     string `json:"hash_current"`
+}
+
+type AuditEventStatsResponse struct {
+	TotalCount   int `json:"total_count"`
+	SuccessCount int `json:"success_count"`
+	FailCount    int `json:"fail_count"`
+	L2Count      int `json:"l2_count"`
+	L3Count      int `json:"l3_count"`
+}
+
+type AuditAlertListRequestBody struct {
+	Level     string `form:"level" json:"level"`
+	Status    string `form:"status" json:"status"`
+	StartTime string `form:"start_time" json:"start_time"`
+	EndTime   string `form:"end_time" json:"end_time"`
+	Page      int    `form:"page" json:"page"`
+	Size      int    `form:"size" json:"size"`
+}
+
+type AuditAlertItem struct {
+	ID              string `json:"id"`
+	RuleCode        string `json:"rule_code"`
+	Level           string `json:"level"`
+	Status          string `json:"status"`
+	TriggerTime     string `json:"trigger_time"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	Description     string `json:"description"`
+}
+
+type AuditAlertDetailResponse struct {
+	ID              string `json:"id"`
+	RuleCode        string `json:"rule_code"`
+	Level           string `json:"level"`
+	Status          string `json:"status"`
+	TriggerTime     string `json:"trigger_time"`
+	EventID         string `json:"event_id"`
+	ActorID         string `json:"actor_id"`
+	TargetPatientID string `json:"target_patient_id"`
+	TargetRecordID  string `json:"target_record_id"`
+	Description     string `json:"description"`
+	HandleTime      string `json:"handle_time"`
+	HandleNote      string `json:"handle_note"`
+}
+
+type AuditAlertStatsResponse struct {
+	TodayCount     int `json:"today_count"`
+	Unresolved     int `json:"unresolved"`
+	HighLevelCount int `json:"high_level_count"`
+}
+
+type AuditAlertResolveRequestBody struct {
+	HandleNote string `json:"handle_note" form:"handle_note"`
+}
+
+type AuditExportCreateRequestBody struct {
+	Format        string `json:"format" form:"format"`
+	MaskSensitive bool   `json:"mask_sensitive" form:"mask_sensitive"`
+	FilterJSON    string `json:"filter_json" form:"filter_json"`
+}
+
+type AuditExportTaskItem struct {
+	ID         string `json:"id"`
+	CreatorID  string `json:"creator_id"`
+	CreateTime string `json:"create_time"`
+	Status     string `json:"status"`
+	Format     string `json:"format"`
+	FileName   string `json:"file_name"`
+	FinishTime string `json:"finish_time"`
+	FailReason string `json:"fail_reason"`
+}
+
+type AuditExportTaskDetailResponse struct {
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	Format     string `json:"format"`
+	FilterJSON string `json:"filter_json"`
+	FileName   string `json:"file_name"`
+	FileHash   string `json:"file_hash"`
+	FailReason string `json:"fail_reason"`
+	CreateTime string `json:"create_time"`
+	FinishTime string `json:"finish_time"`
+}
+
+type AuditCollectorHealthResponse struct {
+	Status       string `json:"status"`
+	LastEventID  string `json:"last_event_id"`
+	HashChainOK  bool   `json:"hash_chain_ok"`
+	PendingCount int    `json:"pending_count"`
+}

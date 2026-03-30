@@ -1,10 +1,11 @@
 # 审计监控需求文档（开发标准版）
 
 ## 1. 文档信息
+
 - 项目：fabric-mims（基于 Hyperledger Fabric 的医院患者管理系统）
 - 模块：审计监控
-- 版本：v1.1（按当前项目约束修订）
-- 日期：2026-03-25
+- 版本：v2.0（完整版）
+- 日期：2026-03-30
 - 适用范围：`chaincode`、`application/server`、`application/web`
 
 ---
@@ -22,15 +23,41 @@
 
 ---
 
-## 3. 总体设计（链上审计模型）
+## 3. 角色定义
 
-## 3.1 链上实体建议
+### 3.1 系统角色矩阵
+
+| 角色 | 角色ID | 职责描述 | 权限范围 |
+|------|--------|----------|----------|
+| 管理员 | admin | 系统唯一管理员，负责全部审计监控操作 | 审计检索、报表导出、告警处置 |
+
+### 3.2 角色约束
+
+1. **admin 账号为系统唯一超级管理员**，由 `chaincode.Init()` 初始化，账号ID：`0feceb66ffc1`
+2. **所有审计操作均通过 admin 身份执行**，不需要多角色切换
+3. **业务操作（如病历查询、授权）由其他角色执行**，但审计日志统一记在 admin 名下（便于集中审计）
+
+### 3.3 审计数据归属
+
+```
+说明：
+- actor_id 字段记录实际执行操作的用户ID（如医生、患者的accountId）
+- 审计日志本身由系统（admin）自动写入
+- 链码层面，写入 AuditEvent 调用方统一为 admin，确保审计日志不可伪造
+```
+
+---
+
+## 4. 总体设计（链上审计模型）
+
+## 4.1 链上实体
 
 ### A. AuditEvent（审计事件）
+
 用途：记录所有审计日志（请求、业务关键操作、失败事件、导出、告警处置等）
 
 核心字段：
-- `id`：审计事件ID（建议雪花/时间+随机）
+- `id`：审计事件ID（雪花ID或时间+随机）
 - `event_type`：事件类型（见附录）
 - `event_level`：L1/L2/L3
 - `event_time`：事件时间（`2006-01-02 15:04:05`）
@@ -49,6 +76,7 @@
 - `hash_prev`、`hash_current`：哈希链字段（防篡改）
 
 ### B. AuditAlert（告警）
+
 用途：记录规则命中的告警
 
 核心字段：
@@ -64,6 +92,7 @@
 - `handle_time`、`handle_note`
 
 ### C. AuditExportTask（导出任务）
+
 用途：记录报表导出任务和下载状态
 
 核心字段：
@@ -78,7 +107,8 @@
 - `fail_reason`
 - `finish_time`
 
-## 3.2 链上索引建议（复合键）
+## 4.2 链上索引（复合键）
+
 - `audit-event-key(id)`
 - `audit-event-time-index-key(event_time, id)`
 - `audit-event-type-index-key(event_type, event_time, id)`
@@ -93,440 +123,1797 @@
 
 ---
 
-## 4. 模块一：日志采集模块
+## 5. 模块一：日志采集模块
 
-## 4.1 功能点
-1. **HTTP审计中间件**
-   - 对所有 `/api/v2/*` 请求自动采集：path、method、耗时、状态码、ip、ua、request_id。
-2. **业务关键事件埋点**
-   - 病历创建、病历查询、授权发起/续期/撤销、导出发起、导出下载、告警确认/关闭。
-3. **失败事件采集**
-   - 参数校验失败、权限失败、链码调用失败、系统异常。
-4. **链上关联**
-   - 若产生 Fabric 交易，记录 tx_id + chaincode_func。
-5. **哈希链防篡改**
-   - 写新日志时读取上一条 hash_current，计算本条 hash_current。
+### 5.1 功能描述
 
-## 4.2 后端接口（内部调试/运维可用）
-1. `POST /api/v2/audit/events/manual`
-   - 用途：手工写入测试审计事件（开发联调）
-2. `GET /api/v2/audit/collector/health`
-   - 用途：采集模块健康状态
+日志采集模块是整个审计监控系统的数据入口，负责自动采集所有 HTTP 请求和业务关键事件，并将其写入链上形成不可篡改的审计日志链。
 
-## 4.3 前端页面
-- 本模块无独立页面（自动采集）
-- 在“审计检索”页面验证采集结果
+**核心能力：**
+1. HTTP 请求自动拦截与采集
+2. 业务关键事件埋点
+3. 失败事件采集
+4. 链上交易关联
+5. 哈希链防篡改
 
-## 4.4 交互
-- 管理员在任何业务页面执行动作 -> 后端自动写审计事件到链上 -> 检索页可见。
+### 5.2 涉及角色
+
+| 角色 | 参与方式 |
+|------|----------|
+| 系统 | 自动采集，无需人工介入 |
+| admin | 手工测试接口使用（开发联调） |
+
+### 5.3 业务流程
+
+```mermaid
+flowchart TD
+    A[HTTP请求进入] --> B{HTTP中间件拦截}
+    B --> C[记录请求元数据]
+    C --> D{业务处理}
+    D --> E{处理成功?}
+    E -->|是| F[执行业务链码调用]
+    F --> G{链码调用成功?}
+    G -->|是| H[记录SUCCESS事件 + tx_id]
+    G -->|否| I[记录FAIL事件 + fail_reason]
+    E -->|否| I
+    H --> J[计算哈希链]
+    I --> J
+    J --> K[写入链上 AuditEvent]
+    K --> L[返回响应]
+```
+
+**详细流程步骤：**
+
+1. **请求拦截**：Gin 中间件拦截所有 `/api/v2/*` 请求
+2. **元数据提取**：提取 path、method、耗时、状态码、IP、UA、request_id
+3. **业务执行**：执行业务逻辑（链码调用或其他）
+4. **事件采集**：
+   - 若成功，记录 SUCCESS 事件，包含 tx_id（若有）
+   - 若失败，记录 FAIL 事件，包含 fail_reason
+5. **哈希链计算**：
+   - 读取上一条日志的 `hash_current`
+   - 计算本条日志的 `hash_current = SHA256(hash_prev + event_data)`
+6. **链上写入**：将完整审计事件写入 Fabric
+7. **响应返回**：返回业务响应
+
+### 5.4 异常流程
+
+| 异常场景 | 处理方式 | 后果 |
+|----------|----------|------|
+| 链码调用超时 | 记录 FAIL 事件，fail_reason = "TIMEOUT" | 事件仍写入链上 |
+| 网络波动导致写入失败 | 重试 3 次，每次间隔 1s | 3次失败后记录本地日志 |
+| 哈希链读取失败 | 记录事件但 hash_prev = "GENESIS" | 哈希链断链，需人工检查 |
+| 事件ID冲突 | 使用雪花算法或 uuid 避免 | 无 |
+| 链上存储空间不足 | 返回 503，触发告警 | 管理员介入 |
+
+### 5.5 接口设计
+
+#### 5.5.1 内部接口（后端使用）
+
+**POST /api/v2/audit/events/manual**
+
+用途：手工写入测试审计事件（开发联调）
+
+```go
+type AuditEventManualRequestBody struct {
+    EventType       string `json:"event_type"`
+    EventLevel      string `json:"event_level"`
+    ActionResult    string `json:"action_result"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    DetailJSON      string `json:"detail_json"`
+    FailReason      string `json:"fail_reason"`
+}
+
+type AuditEventManualResponse struct {
+    EventID string `json:"event_id"`
+    TxID    string `json:"tx_id"`
+}
+```
+
+#### 5.5.2 运维接口
+
+**GET /api/v2/audit/collector/health**
+
+用途：采集模块健康状态
+
+```go
+type AuditCollectorHealthResponse struct {
+    Status        string `json:"status"`         // healthy/degraded/down
+    LastEventID   string `json:"last_event_id"`   // 最后一条事件ID
+    HashChainOK    bool   `json:"hash_chain_ok"`   // 哈希链是否连续
+    PendingCount   int    `json:"pending_count"`   // 待写入队列长度
+}
+```
+
+### 5.6 权限控制
+
+| 接口 | 权限要求 |
+|------|----------|
+| POST /api/v2/audit/events/manual | 仅 admin |
+| GET /api/v2/audit/collector/health | 仅 admin |
+
+**实现方式**：通过 Gin 中间件校验 session/token 中的 role = "admin"
+
+### 5.7 链码逻辑
+
+#### 5.7.1 数据结构（chaincode/model/model.go）
+
+```go
+// AuditEvent 审计事件
+type AuditEvent struct {
+    ID              string `json:"id"`              // 事件ID
+    EventType       string `json:"event_type"`       // 事件类型
+    EventLevel      string `json:"event_level"`      // L1/L2/L3
+    EventTime       string `json:"event_time"`       // 2006-01-02 15:04:05
+    ActorID         string `json:"actor_id"`         // 操作者ID
+    OrgID           string `json:"org_id"`           // 机构ID
+    TargetPatientID string `json:"target_patient_id"` // 目标患者ID
+    TargetRecordID  string `json:"target_record_id"`  // 目标病历ID
+    TxID            string `json:"tx_id"`            // 关联交易哈希
+    ChaincodeFunc   string `json:"chaincode_func"`   // 关联链码函数
+    RequestPath     string `json:"request_path"`     // 请求路径
+    RequestMethod   string `json:"request_method"`   // 请求方法
+    RequestID       string `json:"request_id"`       // 请求追踪ID
+    TraceID         string `json:"trace_id"`         // 链路追踪ID
+    ClientIP        string `json:"client_ip"`        // 客户端IP
+    UserAgent       string `json:"user_agent"`       // 用户代理
+    ActionResult    string `json:"action_result"`    // SUCCESS/FAIL
+    FailReason      string `json:"fail_reason"`      // 失败原因
+    DetailJSON      string `json:"detail_json"`      // 详情JSON
+    HashPrev        string `json:"hash_prev"`        // 上一条哈希
+    HashCurrent     string `json:"hash_current"`     // 当前哈希
+}
+
+// 复合键常量
+const (
+    AuditEventKey                = "audit-event-key"
+    AuditEventTimeIndexKey       = "audit-event-time-index-key"
+    AuditEventTypeIndexKey       = "audit-event-type-index-key"
+    AuditEventActorIndexKey      = "audit-event-actor-index-key"
+    AuditEventPatientIndexKey    = "audit-event-patient-index-key"
+    AuditEventRecordIndexKey     = "audit-event-record-index-key"
+    AuditEventTxIndexKey          = "audit-event-tx-index-key"
+    AuditEventHashChainKey       = "audit-event-hash-chain-key" // 存储最后一条哈希
+)
+```
+
+#### 5.7.2 链码函数（chaincode/api/audit.go）
+
+```go
+// CreateAuditEvent 创建审计事件
+// args: [AuditEvent JSON]
+func CreateAuditEvent(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) != 1 {
+        return shim.Error("参数个数不满足")
+    }
+
+    var event AuditEvent
+    if err := json.Unmarshal([]byte(args[0]), &event); err != nil {
+        return shim.Error(fmt.Sprintf("审计事件解析失败: %v", err))
+    }
+
+    // 生成事件ID（若未提供）
+    if event.ID == "" {
+        event.ID = generateEventID(stub)
+    }
+
+    // 规范化时间格式
+    if event.EventTime == "" {
+        event.EventTime = time.Now().Format("2006-01-02 15:04:05")
+    }
+
+    // 获取哈希链上一条哈希
+    hashPrev, err := getLastHash(stub)
+    if err != nil {
+        hashPrev = "GENESIS"
+    }
+    event.HashPrev = hashPrev
+
+    // 计算当前哈希
+    event.HashCurrent = calculateHash(event)
+
+    // 写入主键
+    if err := utils.WriteLedger(event.ID, stub, AuditEventKey, []string{event.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("写入审计事件失败: %v", err))
+    }
+
+    // 写入复合索引
+    if err := putAuditEventIndexes(stub, &event); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    // 更新哈希链
+    if err := updateHashChain(stub, event.HashCurrent); err != nil {
+        // 日志记录，不阻塞
+    }
+
+    payload, _ := json.Marshal(event)
+    return shim.Success(payload)
+}
+
+// putAuditEventIndexes 写入审计事件索引
+func putAuditEventIndexes(stub shim.ChaincodeStubInterface, event *AuditEvent) error {
+    // 时间索引
+    if err := utils.WriteLedger(event.ID, stub, AuditEventTimeIndexKey,
+        []string{event.EventTime, event.ID}); err != nil {
+        return err
+    }
+    // 类型索引
+    if err := utils.WriteLedger(event.ID, stub, AuditEventTypeIndexKey,
+        []string{event.EventType, event.EventTime, event.ID}); err != nil {
+        return err
+    }
+    // 操作者索引
+    if err := utils.WriteLedger(event.ID, stub, AuditEventActorIndexKey,
+        []string{event.ActorID, event.EventTime, event.ID}); err != nil {
+        return err
+    }
+    // 患者索引
+    if event.TargetPatientID != "" {
+        if err := utils.WriteLedger(event.ID, stub, AuditEventPatientIndexKey,
+            []string{event.TargetPatientID, event.EventTime, event.ID}); err != nil {
+            return err
+        }
+    }
+    // 病历索引
+    if event.TargetRecordID != "" {
+        if err := utils.WriteLedger(event.ID, stub, AuditEventRecordIndexKey,
+            []string{event.TargetRecordID, event.EventTime, event.ID}); err != nil {
+            return err
+        }
+    }
+    // 交易索引
+    if event.TxID != "" {
+        if err := utils.WriteLedger(event.ID, stub, AuditEventTxIndexKey,
+            []string{event.TxID, event.ID}); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+// GetAuditEventsByCompositeKey 按复合条件查询审计事件
+// args: [keyType, args...]
+func GetAuditEventsByCompositeKey(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) < 2 {
+        return shim.Error("参数个数不满足")
+    }
+
+    keyType := args[0]
+    keyArgs := args[1:]
+
+    switch keyType {
+    case "time":
+        return queryByTimeRange(stub, keyArgs)
+    case "type":
+        return queryByType(stub, keyArgs)
+    case "actor":
+        return queryByActor(stub, keyArgs)
+    case "patient":
+        return queryByPatient(stub, keyArgs)
+    case "record":
+        return queryByRecord(stub, keyArgs)
+    default:
+        return shim.Error("不支持的索引类型")
+    }
+}
+```
+
+### 5.8 前端设计
+
+**本模块无独立页面**（自动采集），但在"审计检索"页面验证采集结果。
+
+### 5.9 异常与边界处理
+
+| 边界条件 | 处理策略 |
+|----------|----------|
+| 事件数据过大 | detail_json 限制最大 10KB，超出截断并标记 |
+| IP 地址异常 | 记录 "UNKNOWN" |
+| 时间格式错误 | 使用服务器当前时间 |
+| 并发写入冲突 | Fabric SDK 自动处理，按 txid 区分 |
+| 哈希链断裂 | 记录 GENESIS，允许人工修复 |
 
 ---
 
-## 5. 模块二：审计检索模块
+## 6. 模块二：审计检索模块
 
-## 5.1 功能点
+### 6.1 功能描述
+
+审计检索模块提供对链上审计日志的查询能力，支持多条件组合筛选、分页查看和详情追溯，帮助管理员快速定位问题和分析行为模式。
+
+**核心能力：**
 1. 审计日志分页查询
 2. 多条件组合筛选
 3. 日志详情查看（含关联 tx_id）
 4. 快速筛选（今日/失败/授权相关/病历访问）
 5. 按当前筛选条件一键发起导出
+6. 统计概览（总次数/成功/失败/级别分布）
 
-## 5.2 接口定义（Go Request/Response）
+### 6.2 涉及角色
 
-### 5.2.1 GET `/api/v2/audit/events`
+| 角色 | 操作权限 |
+|------|----------|
+| admin | 查询、查看详情、发起导出 |
+
+### 6.3 业务流程
+
+```mermaid
+flowchart TD
+    A[打开审计检索页] --> B[设置筛选条件]
+    B --> C[点击查询]
+    C --> D[前端校验参数]
+    D --> E{参数有效?}
+    E -->|否| F[提示错误信息]
+    E -->|是| G[调用GET /api/v2/audit/events]
+    G --> H[后端查询链码]
+    H --> I{查询成功?}
+    I -->|否| J[显示错误提示]
+    I -->|是| K[前端渲染列表]
+    K --> L[点击详情按钮]
+    L --> M[调用GET /api/v2/audit/events/{id}]
+    M --> N[弹出详情弹窗]
+    N --> O[点击导出当前结果]
+    O --> P[跳转到导出页，带筛选条件]
+```
+
+### 6.4 异常流程
+
+| 异常场景 | 处理方式 | 用户反馈 |
+|----------|----------|----------|
+| 链码查询超时（>10s） | 返回504网关超时 | "查询超时，请缩小时间范围" |
+| 无权限访问 | 返回403 | "无权限访问审计日志" |
+| 参数格式错误 | 返回400 | 具体字段错误提示 |
+| 链上无数据 | 返回空列表 | "暂无审计日志" |
+| 详情事件不存在 | 返回404 | "该事件已不存在" |
+
+### 6.5 接口设计
+
+#### 6.5.1 GET /api/v2/audit/events
+
 Query 参数：
-- `start_time` `string`
-- `end_time` `string`
-- `event_type` `string`
-- `event_level` `string`
-- `action_result` `string`
-- `target_patient_id` `string`
-- `target_record_id` `string`
-- `tx_id` `string`
-- `keyword` `string`
-- `page` `int`
-- `size` `int`
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| start_time | string | 否 | 开始时间 2006-01-02 15:04:05 |
+| end_time | string | 否 | 结束时间 2006-01-02 15:04:05 |
+| event_type | string | 否 | 事件类型 |
+| event_level | string | 否 | L1/L2/L3 |
+| action_result | string | 否 | SUCCESS/FAIL |
+| target_patient_id | string | 否 | 患者ID |
+| target_record_id | string | 否 | 病历ID |
+| tx_id | string | 否 | 交易哈希 |
+| keyword | string | 否 | 关键词（detail_json模糊搜索） |
+| page | int | 否 | 页码，默认1 |
+| size | int | 否 | 每页条数，默认20，最大100 |
 
 Go 结构：
+
 ```go
 // application/server/model/model.go
 
 type AuditEventListRequestBody struct {
-	StartTime       string `form:"start_time" json:"start_time"`
-	EndTime         string `form:"end_time" json:"end_time"`
-	EventType       string `form:"event_type" json:"event_type"`
-	EventLevel      string `form:"event_level" json:"event_level"`
-	ActionResult    string `form:"action_result" json:"action_result"`
-	TargetPatientID string `form:"target_patient_id" json:"target_patient_id"`
-	TargetRecordID  string `form:"target_record_id" json:"target_record_id"`
-	TxID            string `form:"tx_id" json:"tx_id"`
-	Keyword         string `form:"keyword" json:"keyword"`
-	Page            int    `form:"page" json:"page"`
-	Size            int    `form:"size" json:"size"`
+    StartTime       string `form:"start_time" json:"start_time"`
+    EndTime         string `form:"end_time" json:"end_time"`
+    EventType       string `form:"event_type" json:"event_type"`
+    EventLevel      string `form:"event_level" json:"event_level"`
+    ActionResult    string `form:"action_result" json:"action_result"`
+    TargetPatientID string `form:"target_patient_id" json:"target_patient_id"`
+    TargetRecordID  string `form:"target_record_id" json:"target_record_id"`
+    TxID            string `form:"tx_id" json:"tx_id"`
+    Keyword         string `form:"keyword" json:"keyword"`
+    Page            int    `form:"page" json:"page"`
+    Size            int    `form:"size" json:"size"`
 }
 
 type AuditEventItem struct {
-	ID              string `json:"id"`
-	EventType       string `json:"event_type"`
-	EventLevel      string `json:"event_level"`
-	EventTime       string `json:"event_time"`
-	ActorID         string `json:"actor_id"`
-	TargetPatientID string `json:"target_patient_id"`
-	TargetRecordID  string `json:"target_record_id"`
-	ActionResult    string `json:"action_result"`
-	TxID            string `json:"tx_id"`
-	RequestPath     string `json:"request_path"`
-	Message         string `json:"message"`
+    ID              string `json:"id"`
+    EventType       string `json:"event_type"`
+    EventLevel      string `json:"event_level"`
+    EventTime       string `json:"event_time"`
+    ActorID         string `json:"actor_id"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    ActionResult    string `json:"action_result"`
+    TxID            string `json:"tx_id"`
+    RequestPath     string `json:"request_path"`
+    Message         string `json:"message"`
 }
 
 type AuditEventListResponse struct {
-	List  []AuditEventItem `json:"list"`
-	Total int              `json:"total"`
-	Page  int              `json:"page"`
-	Size  int              `json:"size"`
+    List  []AuditEventItem `json:"list"`
+    Total int              `json:"total"`
+    Page  int              `json:"page"`
+    Size  int              `json:"size"`
 }
 ```
 
-### 5.2.2 GET `/api/v2/audit/events/{event_id}`
+#### 6.5.2 GET /api/v2/audit/events/{event_id}
+
 ```go
 type AuditEventDetailResponse struct {
-	ID              string `json:"id"`
-	EventType       string `json:"event_type"`
-	EventLevel      string `json:"event_level"`
-	EventTime       string `json:"event_time"`
-	ActorID         string `json:"actor_id"`
-	OrgID           string `json:"org_id"`
-	TargetPatientID string `json:"target_patient_id"`
-	TargetRecordID  string `json:"target_record_id"`
-	TxID            string `json:"tx_id"`
-	ChaincodeFunc   string `json:"chaincode_func"`
-	RequestPath     string `json:"request_path"`
-	RequestMethod   string `json:"request_method"`
-	RequestID       string `json:"request_id"`
-	TraceID         string `json:"trace_id"`
-	ClientIP        string `json:"client_ip"`
-	UserAgent       string `json:"user_agent"`
-	ActionResult    string `json:"action_result"`
-	FailReason      string `json:"fail_reason"`
-	DetailJSON      string `json:"detail_json"`
-	HashPrev        string `json:"hash_prev"`
-	HashCurrent     string `json:"hash_current"`
+    ID              string `json:"id"`
+    EventType       string `json:"event_type"`
+    EventLevel      string `json:"event_level"`
+    EventTime       string `json:"event_time"`
+    ActorID         string `json:"actor_id"`
+    OrgID           string `json:"org_id"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    TxID            string `json:"tx_id"`
+    ChaincodeFunc   string `json:"chaincode_func"`
+    RequestPath     string `json:"request_path"`
+    RequestMethod   string `json:"request_method"`
+    RequestID       string `json:"request_id"`
+    TraceID         string `json:"trace_id"`
+    ClientIP        string `json:"client_ip"`
+    UserAgent       string `json:"user_agent"`
+    ActionResult    string `json:"action_result"`
+    FailReason      string `json:"fail_reason"`
+    DetailJSON      string `json:"detail_json"`
+    HashPrev        string `json:"hash_prev"`
+    HashCurrent     string `json:"hash_current"`
 }
 ```
 
-### 5.2.3 GET `/api/v2/audit/events/stats`
+#### 6.5.3 GET /api/v2/audit/events/stats
+
 ```go
 type AuditEventStatsResponse struct {
-	TotalCount   int `json:"total_count"`
-	SuccessCount int `json:"success_count"`
-	FailCount    int `json:"fail_count"`
-	L2Count      int `json:"l2_count"`
-	L3Count      int `json:"l3_count"`
+    TotalCount   int `json:"total_count"`
+    SuccessCount int `json:"success_count"`
+    FailCount    int `json:"fail_count"`
+    L2Count      int `json:"l2_count"`
+    L3Count      int `json:"l3_count"`
 }
 ```
 
-## 5.3 前端页面字段与按钮（Vue）
+### 6.6 权限控制
 
-页面：`审计检索`
+| 接口 | 权限要求 | 实现方式 |
+|------|----------|----------|
+| GET /api/v2/audit/events | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/events/{id} | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/events/stats | 仅 admin | session.token.role == "admin" |
 
-1. 筛选区字段：
-- 时间范围（`start_time/end_time`）
-- 事件类型（下拉）
-- 事件级别（L1/L2/L3）
-- 执行结果（SUCCESS/FAIL）
-- 患者ID
-- 病历ID
-- TxID
-- 关键词
+**错误响应：**
 
-2. 列表字段：
-- 时间
-- 事件类型
-- 级别
-- 操作人
-- 患者ID
-- 病历ID
-- 结果
-- TxID
-- 请求路径
-- 操作（查看详情）
+```json
+{
+    "code": 403,
+    "msg": "无权限访问审计日志",
+    "data": null
+}
+```
 
-3. 按钮：
-- `查询`
-- `重置`
-- `仅看失败`
-- `仅看今日`
-- `导出当前结果`
-- 行内：`详情`
+### 6.7 链码逻辑
 
-4. 详情弹窗字段：
-- 基础信息、请求信息、链上关联信息、结果信息、防篡改字段。
+```go
+// queryByTimeRange 按时间范围查询
+// args: [startTime, endTime, page, size]
+func queryByTimeRange(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) < 4 {
+        return shim.Error("参数个数不满足")
+    }
 
-## 5.4 页面交互
-1. 管理员设置筛选条件 -> 点“查询”
-2. 显示分页列表
-3. 点“详情”打开弹窗
-4. 点“导出当前结果”跳转/唤起导出任务创建
+    startTime := args[0]
+    endTime := args[1]
+    page, _ := strconv.Atoi(args[2])
+    size, _ := strconv.Atoi(args[3])
+
+    // 使用 GetStateByPartialCompositeKeysWithPagination 分页查询
+    results, err := utils.GetStateByPartialCompositeKeysWithPagination(
+        stub,
+        AuditEventTimeIndexKey,
+        []string{""}, // 时间索引需要特殊处理
+        int32(size),
+        []byte(""),
+    )
+    if err != nil {
+        return shim.Error(fmt.Sprintf("查询失败: %v", err))
+    }
+
+    var events []AuditEvent
+    for _, v := range results {
+        var event AuditEvent
+        if err := json.Unmarshal(v, &event); err != nil {
+            continue
+        }
+        // 时间过滤
+        if startTime != "" && event.EventTime < startTime {
+            continue
+        }
+        if endTime != "" && event.EventTime > endTime {
+            continue
+        }
+        events = append(events, event)
+    }
+
+    payload, _ := json.Marshal(events)
+    return shim.Success(payload)
+}
+```
+
+### 6.8 前端设计
+
+#### 6.8.1 页面结构
+
+页面路径：`application/web/src/views/audit/search/index.vue`
+
+```vue
+<template>
+  <div class="audit-search">
+    <!-- 统计卡片 -->
+    <el-row :gutter="20" class="stats-cards">
+      <el-col :span="6">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value">{{ stats.total_count }}</div>
+            <div class="stat-label">总事件数</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value success">{{ stats.success_count }}</div>
+            <div class="stat-label">成功</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value danger">{{ stats.fail_count }}</div>
+            <div class="stat-label">失败</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value warning">{{ stats.l3_count }}</div>
+            <div class="stat-label">L3级事件</div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 筛选区 -->
+    <el-card class="filter-card">
+      <el-form :inline="true" :model="filterForm">
+        <el-form-item label="时间范围">
+          <el-date-picker
+            v-model="filterForm.dateRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="yyyy-MM-dd HH:mm:ss"
+          />
+        </el-form-item>
+        <el-form-item label="事件类型">
+          <el-select v-model="filterForm.event_type" placeholder="请选择" clearable>
+            <el-option label="登录" value="LOGIN" />
+            <el-option label="查询病历" value="QUERY_RECORD" />
+            <el-option label="创建病历" value="CREATE_RECORD" />
+            <el-option label="授权操作" value="GRANT_RECORD_AUTH" />
+            <el-option label="导出报表" value="EXPORT_REPORT_CREATE" />
+            <el-option label="API错误" value="API_ERROR" />
+            <el-option label="链码错误" value="CHAINCODE_ERROR" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="事件级别">
+          <el-select v-model="filterForm.event_level" placeholder="请选择" clearable>
+            <el-option label="L1-普通" value="L1" />
+            <el-option label="L2-警告" value="L2" />
+            <el-option label="L3-严重" value="L3" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="执行结果">
+          <el-select v-model="filterForm.action_result" placeholder="请选择" clearable>
+            <el-option label="成功" value="SUCCESS" />
+            <el-option label="失败" value="FAIL" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="患者ID">
+          <el-input v-model="filterForm.target_patient_id" placeholder="请输入" clearable />
+        </el-form-item>
+        <el-form-item label="病历ID">
+          <el-input v-model="filterForm.target_record_id" placeholder="请输入" clearable />
+        </el-form-item>
+        <el-form-item label="关键词">
+          <el-input v-model="filterForm.keyword" placeholder="detail_json关键词" clearable />
+        </el-form-item>
+      </el-form>
+      <div class="filter-actions">
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="handleReset">重置</el-button>
+        <el-button type="warning" @click="handleOnlyFail">仅看失败</el-button>
+        <el-button type="info" @click="handleOnlyToday">仅看今日</el-button>
+        <el-button type="success" @click="handleExport">导出当前结果</el-button>
+      </div>
+    </el-card>
+
+    <!-- 列表区 -->
+    <el-card class="table-card">
+      <el-table :data="tableData" stripe border>
+        <el-table-column prop="event_time" label="时间" width="180" sortable />
+        <el-table-column prop="event_type" label="事件类型" width="150">
+          <template slot-scope="{ row }">
+            <el-tag :type="getEventTypeTag(row.event_type)">{{ getEventTypeName(row.event_type) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="event_level" label="级别" width="80">
+          <template slot-scope="{ row }">
+            <el-tag :type="getLevelTag(row.event_level)" size="small">{{ row.event_level }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="actor_id" label="操作人" width="120" />
+        <el-table-column prop="target_patient_id" label="患者ID" width="120" show-overflow-tooltip />
+        <el-table-column prop="target_record_id" label="病历ID" width="120" show-overflow-tooltip />
+        <el-table-column prop="action_result" label="结果" width="80">
+          <template slot-scope="{ row }">
+            <el-tag :type="row.action_result === 'SUCCESS' ? 'success' : 'danger'" size="small">
+              {{ row.action_result }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="tx_id" label="TxID" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="request_path" label="请求路径" min-width="150" show-overflow-tooltip />
+        <el-table-column label="操作" width="100" fixed="right">
+          <template slot-scope="{ row }">
+            <el-button type="text" size="small" @click="handleDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <el-pagination
+        class="pagination"
+        :current-page="pagination.page"
+        :page-sizes="[10, 20, 50, 100]"
+        :page-size="pagination.size"
+        :total="pagination.total"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
+      />
+    </el-card>
+
+    <!-- 详情弹窗 -->
+    <el-dialog title="审计事件详情" :visible.sync="detailVisible" width="800px">
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="事件ID">{{ detail.id }}</el-descriptions-item>
+        <el-descriptions-item label="事件类型">{{ getEventTypeName(detail.event_type) }}</el-descriptions-item>
+        <el-descriptions-item label="事件级别">
+          <el-tag :type="getLevelTag(detail.event_level)">{{ detail.event_level }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="执行结果">
+          <el-tag :type="detail.action_result === 'SUCCESS' ? 'success' : 'danger'">{{ detail.action_result }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="事件时间">{{ detail.event_time }}</el-descriptions-item>
+        <el-descriptions-item label="操作人ID">{{ detail.actor_id }}</el-descriptions-item>
+        <el-descriptions-item label="目标患者ID">{{ detail.target_patient_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="目标病历ID">{{ detail.target_record_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="客户端IP">{{ detail.client_ip }}</el-descriptions-item>
+        <el-descriptions-item label="请求方法">{{ detail.request_method }}</el-descriptions-item>
+        <el-descriptions-item label="请求路径" :span="2">{{ detail.request_path }}</el-descriptions-item>
+        <el-descriptions-item label="交易哈希" :span="2">{{ detail.tx_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="链码函数">{{ detail.chaincode_func || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="失败原因" :span="2">
+          <span class="fail-reason">{{ detail.fail_reason || '-' }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="请求追踪ID" :span="2">{{ detail.request_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="详情JSON" :span="2">
+          <pre class="detail-json">{{ formatJSON(detail.detail_json) }}</pre>
+        </el-descriptions-item>
+        <el-descriptions-item label="哈希链" :span="2">
+          <div class="hash-info">
+            <div>上一条: <span class="hash">{{ detail.hash_prev || 'GENESIS' }}</span></div>
+            <div>当前: <span class="hash">{{ detail.hash_current }}</span></div>
+          </div>
+        </el-descriptions-item>
+      </el-descriptions>
+      <div slot="footer">
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+```
+
+#### 6.8.2 交互说明
+
+| 交互 | 触发 | 行为 |
+|------|------|------|
+| 页面加载 | - | 自动加载今日统计数据 |
+| 查询 | 点击"查询"按钮 | 按筛选条件查询，支持分页 |
+| 重置 | 点击"重置"按钮 | 清空筛选条件，刷新列表 |
+| 仅看失败 | 点击"仅看失败"按钮 | 设置 action_result=FAIL，执行查询 |
+| 仅看今日 | 点击"仅看今日"按钮 | 设置时间范围为今日，执行查询 |
+| 导出 | 点击"导出当前结果" | 跳转导出页，带当前筛选条件 |
+| 查看详情 | 点击行内"详情" | 弹出详情弹窗 |
+| 分页 | 切换页码/条数 | 重新查询对应页数据 |
+
+### 6.9 异常与边界处理
+
+| 边界条件 | 处理策略 |
+|----------|----------|
+| 时间范围超过90天 | 提示"查询范围过大，请缩小至90天内" |
+| page <= 0 | 默认 page = 1 |
+| size <= 0 或 > 100 | 默认 size = 20 |
+| 无匹配的日志 | 返回空列表，显示"暂无审计日志" |
+| 关键词过长（>100字符） | 截断并返回400 |
+| 时间格式错误 | 返回400，提示正确格式 |
 
 ---
 
-## 6. 模块三：报表导出模块
+## 7. 模块三：报表导出模块
 
-## 6.1 功能点
+### 7.1 功能描述
+
+报表导出模块允许管理员将审计日志导出为 CSV/XLSX 格式文件，支持离线分析和存档。
+
+**核心能力：**
 1. 基于筛选条件创建导出任务
 2. 支持 CSV（必做）/XLSX（建议）
 3. 导出任务状态跟踪（PENDING/RUNNING/SUCCESS/FAIL）
 4. 下载导出文件
 5. 导出操作自动记审计日志
 
-## 6.2 接口定义（Go Request/Response）
+### 7.2 涉及角色
 
-### 6.2.1 POST `/api/v2/audit/reports/export`
+| 角色 | 操作权限 |
+|------|----------|
+| admin | 创建导出任务、查看任务列表、下载文件 |
+
+### 7.3 业务流程
+
+```mermaid
+flowchart TD
+    A[进入导出页面] --> B[选择/确认筛选条件]
+    B --> C[选择导出格式]
+    C --> D[是否脱敏]
+    D --> E[点击创建导出]
+    E --> F[POST /api/v2/audit/reports/export]
+    F --> G{创建成功?}
+    G -->|否| H[显示错误提示]
+    G -->|是| I[跳转到任务列表]
+    I --> J[轮询任务状态 / 手动刷新]
+    J --> K{任务完成?}
+    K -->|否| J
+    K -->|是| L[下载按钮可点击]
+    L --> M[点击下载]
+    M --> N[GET /api/v2/audit/reports/download/{task_id}]
+    N --> O[浏览器下载文件]
+    I --> P[导出任务记录到审计日志]
+```
+
+### 7.4 异常流程
+
+| 异常场景 | 处理方式 | 用户反馈 |
+|----------|----------|----------|
+| 导出数据量过大（>10万条） | 返回400，提示分批导出 | "数据量过大，请缩小筛选范围" |
+| 导出任务创建失败 | 任务状态置为FAIL，记录失败原因 | 显示失败原因 |
+| 文件生成超时（>5分钟） | 任务状态置为FAIL | "生成超时，请重试" |
+| 下载链接过期 | 返回410 Gone | "链接已过期，请重新生成" |
+| 磁盘空间不足 | 返回500，管理员介入 | "服务器存储不足" |
+
+### 7.5 接口设计
+
+#### 7.5.1 POST /api/v2/audit/reports/export
+
 ```go
 type AuditExportCreateRequestBody struct {
-	Format        string `json:"format"` // csv/xlsx
-	MaskSensitive bool   `json:"mask_sensitive"`
-	FilterJSON    string `json:"filter_json"` // 与检索条件一致的JSON
+    Format        string `json:"format"`         // csv/xlsx
+    MaskSensitive bool   `json:"mask_sensitive"` // 是否脱敏
+    FilterJSON    string `json:"filter_json"`     // 与检索条件一致的JSON
 }
 
 type AuditExportCreateResponse struct {
-	TaskID string `json:"task_id"`
+    TaskID string `json:"task_id"`
 }
 ```
 
-### 6.2.2 GET `/api/v2/audit/reports/tasks`
+#### 7.5.2 GET /api/v2/audit/reports/tasks
+
+Query 参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | int | 否 | 页码，默认1 |
+| size | int | 否 | 每页条数，默认10 |
+
 ```go
 type AuditExportTaskItem struct {
-	ID         string `json:"id"`
-	CreatorID  string `json:"creator_id"`
-	CreateTime string `json:"create_time"`
-	Status     string `json:"status"`
-	Format     string `json:"format"`
-	FileName   string `json:"file_name"`
-	FinishTime string `json:"finish_time"`
-	FailReason string `json:"fail_reason"`
+    ID         string `json:"id"`
+    CreatorID  string `json:"creator_id"`
+    CreateTime string `json:"create_time"`
+    Status     string `json:"status"`   // PENDING/RUNNING/SUCCESS/FAIL
+    Format     string `json:"format"`
+    FileName   string `json:"file_name"`
+    FinishTime string `json:"finish_time"`
+    FailReason string `json:"fail_reason"`
 }
 
 type AuditExportTaskListResponse struct {
-	List  []AuditExportTaskItem `json:"list"`
-	Total int                   `json:"total"`
+    List  []AuditExportTaskItem `json:"list"`
+    Total int                   `json:"total"`
 }
 ```
 
-### 6.2.3 GET `/api/v2/audit/reports/tasks/{task_id}`
+#### 7.5.3 GET /api/v2/audit/reports/tasks/{task_id}
+
 ```go
 type AuditExportTaskDetailResponse struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	Format     string `json:"format"`
-	FilterJSON string `json:"filter_json"`
-	FileName   string `json:"file_name"`
-	FileHash   string `json:"file_hash"`
-	FailReason string `json:"fail_reason"`
-	CreateTime string `json:"create_time"`
-	FinishTime string `json:"finish_time"`
+    ID         string `json:"id"`
+    Status     string `json:"status"`
+    Format     string `json:"format"`
+    FilterJSON string `json:"filter_json"`
+    FileName   string `json:"file_name"`
+    FileHash   string `json:"file_hash"`
+    FailReason string `json:"fail_reason"`
+    CreateTime string `json:"create_time"`
+    FinishTime string `json:"finish_time"`
 }
 ```
 
-### 6.2.4 GET `/api/v2/audit/reports/download/{task_id}`
-- 下载文件流（成功任务可下载）
+#### 7.5.4 GET /api/v2/audit/reports/download/{task_id}
 
-## 6.3 前端页面字段与按钮（Vue）
+响应：文件流（Content-Type: application/octet-stream）
 
-页面：`报表导出`
+| 状态码 | 说明 |
+|--------|------|
+| 200 | 文件下载成功 |
+| 404 | 任务不存在 |
+| 410 | 文件已过期或不存在 |
+| 403 | 无下载权限 |
 
-1. 创建导出区字段：
-- 导出格式（csv/xlsx）
-- 脱敏开关（mask_sensitive）
-- 条件预览（来自检索页条件）
+### 7.6 权限控制
 
-2. 任务列表字段：
-- 任务ID
-- 创建时间
-- 状态
-- 格式
-- 文件名
-- 完成时间
-- 失败原因
-- 操作
+| 接口 | 权限要求 | 实现方式 |
+|------|----------|----------|
+| POST /api/v2/audit/reports/export | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/reports/tasks | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/reports/tasks/{id} | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/reports/download/{id} | 仅 admin | session.token.role == "admin" |
 
-3. 按钮：
-- `创建导出`
-- `刷新状态`
-- 行内：`下载`（SUCCESS时可点）
-- 行内：`查看详情`
+### 7.7 链码逻辑
 
-## 6.4 页面交互
-1. 从检索页带条件进入，或在导出页选择条件
-2. 点击“创建导出”
-3. 任务进入列表，管理员刷新查看状态
-4. 成功后点击“下载”
+```go
+// AuditExportTask 导出任务
+type AuditExportTask struct {
+    ID         string `json:"id"`
+    CreatorID  string `json:"creator_id"`
+    CreateTime string `json:"create_time"`
+    Status     string `json:"status"`   // PENDING/RUNNING/SUCCESS/FAIL
+    Format     string `json:"format"`
+    FilterJSON string `json:"filter_json"`
+    FileName   string `json:"file_name"`
+    FileHash   string `json:"file_hash"`
+    FailReason string `json:"fail_reason"`
+    FinishTime string `json:"finish_time"`
+}
+
+// CreateAuditExportTask 创建导出任务
+// args: [AuditExportTask JSON]
+func CreateAuditExportTask(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) != 1 {
+        return shim.Error("参数个数不满足")
+    }
+
+    var task AuditExportTask
+    if err := json.Unmarshal([]byte(args[0]), &task); err != nil {
+        return shim.Error(fmt.Sprintf("任务解析失败: %v", err))
+    }
+
+    if task.ID == "" {
+        task.ID = stub.GetTxID()[:16]
+    }
+    task.Status = "PENDING"
+    task.CreateTime = time.Now().Format("2006-01-02 15:04:05")
+
+    if err := utils.WriteLedger(task.ID, stub, AuditExportTaskKey, []string{task.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("创建任务失败: %v", err))
+    }
+
+    // 写入状态索引
+    if err := utils.WriteLedger(task.ID, stub, AuditExportTaskStatusIndexKey,
+        []string{task.Status, task.CreateTime, task.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    payload, _ := json.Marshal(task)
+    return shim.Success(payload)
+}
+
+// UpdateAuditExportTaskStatus 更新导出任务状态
+// args: [taskID, status, fileName, fileHash, failReason, finishTime]
+func UpdateAuditExportTaskStatus(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) < 2 {
+        return shim.Error("参数个数不满足")
+    }
+
+    taskID := args[0]
+    newStatus := args[1]
+    fileName := args[2]
+    fileHash := args[3]
+    failReason := args[4]
+    finishTime := args[5]
+
+    // 获取现有任务
+    taskBytes, err := utils.GetStateByPartialCompositeKeys(stub, AuditExportTaskKey, []string{taskID})
+    if err != nil || len(taskBytes) == 0 {
+        return shim.Error("任务不存在")
+    }
+
+    var task AuditExportTask
+    if err := json.Unmarshal(taskBytes[0], &task); err != nil {
+        return shim.Error(fmt.Sprintf("任务解析失败: %v", err))
+    }
+
+    // 状态机校验
+    validTransitions := map[string][]string{
+        "PENDING":   {"RUNNING", "FAIL"},
+        "RUNNING":   {"SUCCESS", "FAIL"},
+        "SUCCESS":   {},
+        "FAIL":      {},
+    }
+
+    allowed := false
+    for _, s := range validTransitions[task.Status] {
+        if s == newStatus {
+            allowed = true
+            break
+        }
+    }
+    if !allowed {
+        return shim.Error(fmt.Sprintf("状态转换不允许: %s -> %s", task.Status, newStatus))
+    }
+
+    // 删除旧索引
+    _ = utils.DelLedger(stub, AuditExportTaskStatusIndexKey,
+        []string{task.Status, task.CreateTime, task.ID})
+
+    // 更新字段
+    task.Status = newStatus
+    if fileName != "" {
+        task.FileName = fileName
+    }
+    if fileHash != "" {
+        task.FileHash = fileHash
+    }
+    if failReason != "" {
+        task.FailReason = failReason
+    }
+    if finishTime != "" {
+        task.FinishTime = finishTime
+    }
+
+    // 写回
+    if err := utils.WriteLedger(task.ID, stub, AuditExportTaskKey, []string{task.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("更新任务失败: %v", err))
+    }
+
+    // 写入新索引
+    if err := utils.WriteLedger(task.ID, stub, AuditExportTaskStatusIndexKey,
+        []string{task.Status, task.CreateTime, task.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    payload, _ := json.Marshal(task)
+    return shim.Success(payload)
+}
+```
+
+### 7.8 前端设计
+
+#### 7.8.1 页面结构
+
+页面路径：`application/web/src/views/audit/export/index.vue`
+
+```vue
+<template>
+  <div class="audit-export">
+    <!-- 创建导出区 -->
+    <el-card class="create-card">
+      <div slot="header">
+        <span>创建导出任务</span>
+      </div>
+      <el-form :model="exportForm" label-width="120px">
+        <el-form-item label="筛选条件">
+          <div class="filter-preview">
+            <el-tag v-if="hasFilters" type="info">已设置筛选条件</el-tag>
+            <el-tag v-else>默认全部</el-tag>
+            <el-button type="text" @click="showFilterDialog = true">查看/修改</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="导出格式">
+          <el-radio-group v-model="exportForm.format">
+            <el-radio label="csv">CSV</el-radio>
+            <el-radio label="xlsx">XLSX</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="数据脱敏">
+          <el-switch v-model="exportForm.mask_sensitive" />
+          <span class="hint">开启后将隐藏患者姓名、身份证号等敏感信息</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="creating" @click="handleCreateExport">
+            创建导出任务
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 任务列表 -->
+    <el-card class="task-card">
+      <div slot="header">
+        <span>导出任务列表</span>
+        <el-button style="float: right;" type="text" @click="handleRefresh">刷新</el-button>
+      </div>
+      <el-table :data="taskList" stripe border>
+        <el-table-column prop="id" label="任务ID" width="150" show-overflow-tooltip />
+        <el-table-column prop="create_time" label="创建时间" width="180" />
+        <el-table-column prop="status" label="状态" width="100">
+          <template slot-scope="{ row }">
+            <el-tag :type="getStatusTag(row.status)">{{ getStatusName(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="format" label="格式" width="80" />
+        <el-table-column prop="file_name" label="文件名" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="finish_time" label="完成时间" width="180" />
+        <el-table-column prop="fail_reason" label="失败原因" min-width="150" show-overflow-tooltip />
+        <el-table-column label="操作" width="180" fixed="right">
+          <template slot-scope="{ row }">
+            <el-button
+              v-if="row.status === 'SUCCESS'"
+              type="success"
+              size="small"
+              @click="handleDownload(row)"
+            >
+              下载
+            </el-button>
+            <el-button type="text" size="small" @click="handleViewDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <el-pagination
+        class="pagination"
+        :current-page="pagination.page"
+        :page-size="pagination.size"
+        :total="pagination.total"
+        layout="total, prev, pager, next"
+        @current-change="handlePageChange"
+      />
+    </el-card>
+
+    <!-- 详情弹窗 -->
+    <el-dialog title="导出任务详情" :visible.sync="detailVisible" width="600px">
+      <el-descriptions :column="1" border>
+        <el-descriptions-item label="任务ID">{{ detail.id }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="getStatusTag(detail.status)">{{ getStatusName(detail.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="导出格式">{{ detail.format }}</el-descriptions-item>
+        <el-descriptions-item label="文件名">{{ detail.file_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="文件哈希">{{ detail.file_hash || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ detail.create_time }}</el-descriptions-item>
+        <el-descriptions-item label="完成时间">{{ detail.finish_time || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="筛选条件">
+          <pre>{{ formatJSON(detail.filter_json) }}</pre>
+        </el-descriptions-item>
+        <el-descriptions-item label="失败原因" v-if="detail.fail_reason">
+          <span class="fail-reason">{{ detail.fail_reason }}</span>
+        </el-descriptions-item>
+      </el-descriptions>
+      <div slot="footer">
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+```
+
+#### 7.8.2 交互说明
+
+| 交互 | 触发 | 行为 |
+|------|------|------|
+| 创建导出 | 点击"创建导出任务" | 弹出确认，显示预计数据量 |
+| 查看/修改筛选 | 点击"查看/修改" | 弹出筛选对话框 |
+| 刷新 | 点击"刷新"或自动轮询 | 刷新任务列表 |
+| 下载 | 点击"下载"按钮 | 浏览器下载文件 |
+| 查看详情 | 点击"详情"按钮 | 弹出详情弹窗 |
+
+### 7.9 异常与边界处理
+
+| 边界条件 | 处理策略 |
+|----------|----------|
+| 导出数据量 > 10万条 | 返回400，提示分批导出 |
+| 文件大小 > 100MB | 返回400，提示缩小范围 |
+| 任务超时（>5分钟未完成） | 自动标记为FAIL |
+| 磁盘空间 < 1GB | 拒绝新导出任务 |
+| 导出格式不支持 | 返回400，支持 csv/xlsx |
+| 脱敏开关为空 | 默认 false（不禁用脱敏） |
 
 ---
 
-## 7. 模块四：告警与监控模块
+## 8. 模块四：告警与监控模块
 
-## 7.1 功能点
-1. 内置告警规则（先写死在后端配置）：
-   - `UNAUTHORIZED_ACCESS`：未授权访问病历
-   - `HIGH_FREQ_ACCESS`：短时高频访问
-   - `CONTINUOUS_FAIL`：连续失败调用
+### 8.1 功能描述
+
+告警与监控模块负责检测异常行为并生成告警，帮助管理员及时发现和处理安全问题。
+
+**核心能力：**
+1. 内置告警规则（先写死在后端配置）
 2. 规则命中生成告警
 3. 告警状态流转：NEW -> ACKED -> RESOLVED
 4. 告警处置记录（处理备注）
 5. 告警统计（今日总数/未处理/高危）
 
-## 7.2 接口定义（Go Request/Response）
+### 8.2 涉及角色
 
-### 7.2.1 GET `/api/v2/audit/alerts`
+| 角色 | 操作权限 |
+|------|----------|
+| admin | 查看告警、确认告警、关闭告警 |
+| 系统 | 自动生成告警（根据规则） |
+
+### 8.3 业务流程
+
+```mermaid
+flowchart TD
+    A[业务操作发生] --> B[日志采集模块写入事件]
+    B --> C[告警规则引擎]
+    C --> D{规则命中?}
+    D -->|否| E[无操作]
+    D -->|是| F[生成告警 AuditAlert]
+    F --> G[写入链上告警]
+    G --> H[管理员收到通知]
+    H --> I[进入告警中心]
+    I --> J[查看告警详情]
+    J --> K{处理决定}
+    K -->|确认| L[点击确认按钮]
+    L --> M[POST /ack]
+    M --> N[状态变为ACKED]
+    K -->|关闭| O[点击关闭按钮]
+    O --> P[填写处理备注]
+    P --> Q[POST /resolve]
+    Q --> R[状态变为RESOLVED]
+    N --> S[处置记录到审计日志]
+    R --> S
+```
+
+### 8.4 告警规则说明
+
+| 规则编码 | 规则名称 | 触发条件 | 级别 | 说明 |
+|----------|----------|----------|------|------|
+| UNAUTHORIZED_ACCESS | 未授权访问 | 医生尝试访问无授权病历 | HIGH | action_result=FAIL 且 fail_reason含"授权" |
+| HIGH_FREQ_ACCESS | 高频访问 | 同一患者 1分钟内 > 10次访问 | MEDIUM | 需滑动窗口统计 |
+| CONTINUOUS_FAIL | 连续失败 | 同一操作 > 5次连续失败 | HIGH | fail_count > 5 |
+| PRIVILEGE_ESCALATION | 权限提升 | 非admin角色访问审计接口 | HIGH | 需单独校验 |
+| BULK_EXPORT | 批量导出 | 单次导出 > 1000条 | LOW | 正常业务可能 |
+
+### 8.5 异常流程
+
+| 异常场景 | 处理方式 | 用户反馈 |
+|----------|----------|----------|
+| 规则引擎崩溃 | 降级为日志记录，不生成告警 | 无感知，故障恢复后补发 |
+| 告警生成失败 | 重试3次，记录失败日志 | 管理员手动检查 |
+| 告警已确认又命中新规则 | 创建新告警，关联原事件 | 显示重复告警提示 |
+| 重复确认同一告警 | 返回400，提示"已确认" | "该告警已确认" |
+| 重复关闭告警 | 返回400，提示"已关闭" | "该告警已关闭" |
+| 关闭告警时未填备注 | 返回400 | "处理备注不能为空" |
+
+### 8.6 接口设计
+
+#### 8.6.1 GET /api/v2/audit/alerts
+
+Query 参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| level | string | 否 | HIGH/MEDIUM/LOW |
+| status | string | 否 | NEW/ACKED/RESOLVED |
+| start_time | string | 否 | 开始时间 |
+| end_time | string | 否 | 结束时间 |
+| page | int | 否 | 页码，默认1 |
+| size | int | 否 | 每页条数，默认20 |
+
 ```go
 type AuditAlertListRequestBody struct {
-	Level     string `form:"level" json:"level"`
-	Status    string `form:"status" json:"status"`
-	StartTime string `form:"start_time" json:"start_time"`
-	EndTime   string `form:"end_time" json:"end_time"`
-	Page      int    `form:"page" json:"page"`
-	Size      int    `form:"size" json:"size"`
+    Level     string `form:"level" json:"level"`
+    Status    string `form:"status" json:"status"`
+    StartTime string `form:"start_time" json:"start_time"`
+    EndTime   string `form:"end_time" json:"end_time"`
+    Page      int    `form:"page" json:"page"`
+    Size      int    `form:"size" json:"size"`
 }
 
 type AuditAlertItem struct {
-	ID              string `json:"id"`
-	RuleCode        string `json:"rule_code"`
-	Level           string `json:"level"`
-	Status          string `json:"status"`
-	TriggerTime     string `json:"trigger_time"`
-	ActorID         string `json:"actor_id"`
-	TargetPatientID string `json:"target_patient_id"`
-	TargetRecordID  string `json:"target_record_id"`
-	Description     string `json:"description"`
+    ID              string `json:"id"`
+    RuleCode        string `json:"rule_code"`
+    Level           string `json:"level"`
+    Status          string `json:"status"`
+    TriggerTime     string `json:"trigger_time"`
+    ActorID         string `json:"actor_id"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    Description     string `json:"description"`
 }
 
 type AuditAlertListResponse struct {
-	List  []AuditAlertItem `json:"list"`
-	Total int              `json:"total"`
+    List  []AuditAlertItem `json:"list"`
+    Total int              `json:"total"`
 }
 ```
 
-### 7.2.2 GET `/api/v2/audit/alerts/{alert_id}`
+#### 8.6.2 GET /api/v2/audit/alerts/{alert_id}
+
 ```go
 type AuditAlertDetailResponse struct {
-	ID              string `json:"id"`
-	RuleCode        string `json:"rule_code"`
-	Level           string `json:"level"`
-	Status          string `json:"status"`
-	TriggerTime     string `json:"trigger_time"`
-	EventID         string `json:"event_id"`
-	ActorID         string `json:"actor_id"`
-	TargetPatientID string `json:"target_patient_id"`
-	TargetRecordID  string `json:"target_record_id"`
-	Description     string `json:"description"`
-	HandleTime      string `json:"handle_time"`
-	HandleNote      string `json:"handle_note"`
+    ID              string `json:"id"`
+    RuleCode        string `json:"rule_code"`
+    Level           string `json:"level"`
+    Status          string `json:"status"`
+    TriggerTime     string `json:"trigger_time"`
+    EventID         string `json:"event_id"`
+    ActorID         string `json:"actor_id"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    Description     string `json:"description"`
+    HandleTime      string `json:"handle_time"`
+    HandleNote      string `json:"handle_note"`
 }
 ```
 
-### 7.2.3 POST `/api/v2/audit/alerts/{alert_id}/ack`
+#### 8.6.3 POST /api/v2/audit/alerts/{alert_id}/ack
+
 ```go
 type AuditAlertAckResponse struct {
-	Success bool `json:"success"`
+    Success bool `json:"success"`
 }
 ```
 
-### 7.2.4 POST `/api/v2/audit/alerts/{alert_id}/resolve`
+#### 8.6.4 POST /api/v2/audit/alerts/{alert_id}/resolve
+
 ```go
 type AuditAlertResolveRequestBody struct {
-	HandleNote string `json:"handle_note"`
+    HandleNote string `json:"handle_note"`
 }
 
 type AuditAlertResolveResponse struct {
-	Success bool `json:"success"`
+    Success bool `json:"success"`
 }
 ```
 
-### 7.2.5 GET `/api/v2/audit/alerts/stats`
+#### 8.6.5 GET /api/v2/audit/alerts/stats
+
 ```go
 type AuditAlertStatsResponse struct {
-	TodayCount    int `json:"today_count"`
-	Unresolved    int `json:"unresolved"`
-	HighLevelCount int `json:"high_level_count"`
+    TodayCount     int `json:"today_count"`
+    Unresolved     int `json:"unresolved"`
+    HighLevelCount int `json:"high_level_count"`
 }
 ```
 
-## 7.3 前端页面字段与按钮（Vue）
+### 8.7 权限控制
 
-页面：`告警中心`
+| 接口 | 权限要求 | 实现方式 |
+|------|----------|----------|
+| GET /api/v2/audit/alerts | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/alerts/{id} | 仅 admin | session.token.role == "admin" |
+| POST /api/v2/audit/alerts/{id}/ack | 仅 admin | session.token.role == "admin" |
+| POST /api/v2/audit/alerts/{id}/resolve | 仅 admin | session.token.role == "admin" |
+| GET /api/v2/audit/alerts/stats | 仅 admin | session.token.role == "admin" |
 
-1. 筛选字段：
-- 告警级别
-- 告警状态
-- 时间范围
+### 8.8 链码逻辑
 
-2. 列表字段：
-- 触发时间
-- 规则编码
-- 级别
-- 状态
-- 操作人
-- 患者ID
-- 病历ID
-- 描述
-- 操作
+```go
+// AuditAlert 告警
+type AuditAlert struct {
+    ID              string `json:"id"`
+    RuleCode        string `json:"rule_code"`
+    Level           string `json:"level"`      // HIGH/MEDIUM/LOW
+    Status          string `json:"status"`      // NEW/ACKED/RESOLVED
+    TriggerTime     string `json:"trigger_time"`
+    EventID         string `json:"event_id"`
+    ActorID         string `json:"actor_id"`
+    TargetPatientID string `json:"target_patient_id"`
+    TargetRecordID  string `json:"target_record_id"`
+    Description     string `json:"description"`
+    HandleTime      string `json:"handle_time"`
+    HandleNote      string `json:"handle_note"`
+}
 
-3. 按钮：
-- `查询`
-- `重置`
-- 行内：`详情`
-- 行内：`确认`（仅 NEW）
-- 行内：`关闭`（仅 ACKED/NEW，弹窗填写处理备注）
+// 告警复合键常量
+const (
+    AuditAlertKey               = "audit-alert-key"
+    AuditAlertStatusIndexKey    = "audit-alert-status-index-key"
+    AuditAlertLevelIndexKey     = "audit-alert-level-index-key"
+    AuditAlertTriggerTimeIndexKey = "audit-alert-trigger-time-index-key"
+)
 
-4. 详情弹窗：
-- 告警详情 + 关联审计事件ID + 处置信息。
+// CreateAuditAlert 创建告警
+// args: [AuditAlert JSON]
+func CreateAuditAlert(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) != 1 {
+        return shim.Error("参数个数不满足")
+    }
 
-## 7.4 页面交互
-1. 后端规则命中自动生成告警
-2. 管理员在告警中心查询与查看详情
-3. 点击“确认”进入 ACKED
-4. 处理完成点击“关闭”，填写备注
+    var alert AuditAlert
+    if err := json.Unmarshal([]byte(args[0]), &alert); err != nil {
+        return shim.Error(fmt.Sprintf("告警解析失败: %v", err))
+    }
+
+    if alert.ID == "" {
+        alert.ID = generateAlertID()
+    }
+    if alert.TriggerTime == "" {
+        alert.TriggerTime = time.Now().Format("2006-01-02 15:04:05")
+    }
+    alert.Status = "NEW"
+
+    // 写入主键
+    if err := utils.WriteLedger(alert.ID, stub, AuditAlertKey, []string{alert.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("创建告警失败: %v", err))
+    }
+
+    // 写入索引
+    if err := putAuditAlertIndexes(stub, &alert); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    payload, _ := json.Marshal(alert)
+    return shim.Success(payload)
+}
+
+// AckAlert 确认告警
+// args: [alertID]
+func AckAlert(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) != 1 {
+        return shim.Error("参数个数不满足")
+    }
+
+    alertID := args[0]
+
+    alert, err := getAlertByID(stub, alertID)
+    if err != nil {
+        return shim.Error("告警不存在")
+    }
+
+    if alert.Status != "NEW" {
+        return shim.Error(fmt.Sprintf("当前状态不允许确认: %s", alert.Status))
+    }
+
+    // 删除旧索引
+    _ = utils.DelLedger(stub, AuditAlertStatusIndexKey,
+        []string{alert.Status, alert.TriggerTime, alert.ID})
+
+    // 更新状态
+    alert.Status = "ACKED"
+
+    // 写回
+    if err := utils.WriteLedger(alert.ID, stub, AuditAlertKey, []string{alert.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("更新告警失败: %v", err))
+    }
+
+    // 写入新索引
+    if err := utils.WriteLedger(alert.ID, stub, AuditAlertStatusIndexKey,
+        []string{alert.Status, alert.TriggerTime, alert.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    payload, _ := json.Marshal(alert)
+    return shim.Success(payload)
+}
+
+// ResolveAlert 关闭/解决告警
+// args: [alertID, handleNote]
+func ResolveAlert(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+    if len(args) != 2 {
+        return shim.Error("参数个数不满足")
+    }
+
+    alertID := args[0]
+    handleNote := args[1]
+
+    if handleNote == "" {
+        return shim.Error("处理备注不能为空")
+    }
+
+    alert, err := getAlertByID(stub, alertID)
+    if err != nil {
+        return shim.Error("告警不存在")
+    }
+
+    if alert.Status == "RESOLVED" {
+        return shim.Error("告警已关闭")
+    }
+
+    // 删除旧索引
+    _ = utils.DelLedger(stub, AuditAlertStatusIndexKey,
+        []string{alert.Status, alert.TriggerTime, alert.ID})
+
+    // 更新状态
+    alert.Status = "RESOLVED"
+    alert.HandleTime = time.Now().Format("2006-01-02 15:04:05")
+    alert.HandleNote = handleNote
+
+    // 写回
+    if err := utils.WriteLedger(alert.ID, stub, AuditAlertKey, []string{alert.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("更新告警失败: %v", err))
+    }
+
+    // 写入新索引
+    if err := utils.WriteLedger(alert.ID, stub, AuditAlertStatusIndexKey,
+        []string{alert.Status, alert.TriggerTime, alert.ID}); err != nil {
+        return shim.Error(fmt.Sprintf("写入索引失败: %v", err))
+    }
+
+    payload, _ := json.Marshal(alert)
+    return shim.Success(payload)
+}
+```
+
+### 8.9 前端设计
+
+#### 8.9.1 页面结构
+
+页面路径：`application/web/src/views/audit/alert/index.vue`
+
+```vue
+<template>
+  <div class="audit-alert">
+    <!-- 统计卡片 -->
+    <el-row :gutter="20" class="stats-cards">
+      <el-col :span="8">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value">{{ stats.today_count }}</div>
+            <div class="stat-label">今日告警</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value warning">{{ stats.unresolved }}</div>
+            <div class="stat-label">未处理</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card>
+          <div class="stat-item">
+            <div class="stat-value danger">{{ stats.high_level_count }}</div>
+            <div class="stat-label">高危告警</div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 筛选区 -->
+    <el-card class="filter-card">
+      <el-form :inline="true" :model="filterForm">
+        <el-form-item label="告警级别">
+          <el-select v-model="filterForm.level" placeholder="请选择" clearable>
+            <el-option label="高危" value="HIGH" />
+            <el-option label="中危" value="MEDIUM" />
+            <el-option label="低危" value="LOW" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="告警状态">
+          <el-select v-model="filterForm.status" placeholder="请选择" clearable>
+            <el-option label="新建" value="NEW" />
+            <el-option label="已确认" value="ACKED" />
+            <el-option label="已关闭" value="RESOLVED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="时间范围">
+          <el-date-picker
+            v-model="filterForm.dateRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="yyyy-MM-dd HH:mm:ss"
+          />
+        </el-form-item>
+      </el-form>
+      <div class="filter-actions">
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="handleReset">重置</el-button>
+      </div>
+    </el-card>
+
+    <!-- 告警列表 -->
+    <el-card class="table-card">
+      <el-table :data="tableData" stripe border>
+        <el-table-column prop="trigger_time" label="触发时间" width="180" sortable />
+        <el-table-column prop="rule_code" label="规则编码" width="180">
+          <template slot-scope="{ row }">
+            <el-tooltip :content="getRuleName(row.rule_code)" placement="top">
+              <el-tag>{{ row.rule_code }}</el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column prop="level" label="级别" width="80">
+          <template slot-scope="{ row }">
+            <el-tag :type="getLevelTag(row.level)" size="small">{{ row.level }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="100">
+          <template slot-scope="{ row }">
+            <el-tag :type="getStatusTag(row.status)">{{ getStatusName(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="actor_id" label="操作人" width="120" />
+        <el-table-column prop="target_patient_id" label="患者ID" width="120" show-overflow-tooltip />
+        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+        <el-table-column label="操作" width="200" fixed="right">
+          <template slot-scope="{ row }">
+            <el-button type="text" size="small" @click="handleDetail(row)">详情</el-button>
+            <el-button
+              v-if="row.status === 'NEW'"
+              type="success"
+              size="small"
+              @click="handleAck(row)"
+            >
+              确认
+            </el-button>
+            <el-button
+              v-if="row.status !== 'RESOLVED'"
+              type="warning"
+              size="small"
+              @click="handleResolve(row)"
+            >
+              关闭
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <el-pagination
+        class="pagination"
+        :current-page="pagination.page"
+        :page-size="pagination.size"
+        :total="pagination.total"
+        layout="total, prev, pager, next"
+        @current-change="handlePageChange"
+      />
+    </el-card>
+
+    <!-- 详情弹窗 -->
+    <el-dialog title="告警详情" :visible.sync="detailVisible" width="700px">
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="告警ID" :span="2">{{ detail.id }}</el-descriptions-item>
+        <el-descriptions-item label="规则编码">{{ detail.rule_code }}</el-descriptions-item>
+        <el-descriptions-item label="规则名称">{{ getRuleName(detail.rule_code) }}</el-descriptions-item>
+        <el-descriptions-item label="级别">
+          <el-tag :type="getLevelTag(detail.level)">{{ detail.level }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="getStatusTag(detail.status)">{{ getStatusName(detail.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="触发时间">{{ detail.trigger_time }}</el-descriptions-item>
+        <el-descriptions-item label="关联事件ID">
+          <el-button type="text" @click="handleViewEvent(detail.event_id)">
+            {{ detail.event_id }}
+          </el-button>
+        </el-descriptions-item>
+        <el-descriptions-item label="操作人">{{ detail.actor_id }}</el-descriptions-item>
+        <el-descriptions-item label="患者ID">{{ detail.target_patient_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="病历ID">{{ detail.target_record_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="描述" :span="2">{{ detail.description }}</el-descriptions-item>
+        <el-descriptions-item label="处理时间">{{ detail.handle_time || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="处理备注" :span="2">{{ detail.handle_note || '-' }}</el-descriptions-item>
+      </el-descriptions>
+      <div slot="footer">
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 关闭告警弹窗 -->
+    <el-dialog title="关闭告警" :visible.sync="resolveVisible" width="500px">
+      <el-form :model="resolveForm" :rules="resolveRules" ref="resolveForm">
+        <el-form-item label="处理备注" prop="handleNote">
+          <el-input
+            v-model="resolveForm.handleNote"
+            type="textarea"
+            :rows="4"
+            placeholder="请输入处理备注（必填）"
+          />
+        </el-form-item>
+      </el-form>
+      <div slot="footer">
+        <el-button @click="resolveVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleResolveSubmit">确定关闭</el-button>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+```
+
+#### 8.9.2 交互说明
+
+| 交互 | 触发 | 行为 |
+|------|------|------|
+| 页面加载 | - | 自动加载统计数据和今日告警列表 |
+| 查询 | 点击"查询"按钮 | 按筛选条件查询 |
+| 重置 | 点击"重置"按钮 | 清空筛选条件 |
+| 查看详情 | 点击"详情"按钮 | 弹出详情弹窗 |
+| 查看关联事件 | 点击事件ID | 跳转到审计检索页并定位该事件 |
+| 确认告警 | 点击"确认"按钮 | 调用 /ack 接口，刷新列表 |
+| 关闭告警 | 点击"关闭"按钮 | 弹出备注填写框 |
+| 提交关闭 | 点击"确定关闭"按钮 | 调用 /resolve 接口，刷新列表 |
+
+### 8.10 异常与边界处理
+
+| 边界条件 | 处理策略 |
+|----------|----------|
+| 高危告警超过10个 | 显示红色警示，建议优先处理 |
+| 告警处理超时（>24小时未处理） | 自动升级，发送通知 |
+| 告警状态流转异常 | 返回400，提示正确状态 |
+| 备注超长（>500字符） | 截断并返回400 |
+| 关联事件不存在 | 显示"关联事件已删除" |
 
 ---
 
-## 8. 路由与页面清单（Vue）
+## 9. 路由与页面清单（Vue）
 
 建议新增页面：
-1. `application/web/src/views/audit/search/index.vue`（审计检索）
-2. `application/web/src/views/audit/export/index.vue`（报表导出）
-3. `application/web/src/views/audit/alert/index.vue`（告警中心）
+
+| 页面路径 | 页面名称 | 说明 |
+|----------|----------|------|
+| application/web/src/views/audit/search/index.vue | 审计检索 | 主查询页面 |
+| application/web/src/views/audit/export/index.vue | 报表导出 | 导出任务管理 |
+| application/web/src/views/audit/alert/index.vue | 告警中心 | 告警查看与处置 |
 
 建议新增 API 文件：
-1. `application/web/src/api/audit.js`
+
+| 文件路径 | 说明 |
+|----------|------|
+| application/web/src/api/audit.js | 审计模块 API 封装 |
+
+```javascript
+// application/web/src/api/audit.js
+import request from '@/utils/request'
+
+export function getAuditEvents(params) {
+  return request({
+    url: '/api/v2/audit/events',
+    method: 'get',
+    params
+  })
+}
+
+export function getAuditEventDetail(eventId) {
+  return request({
+    url: `/api/v2/audit/events/${eventId}`,
+    method: 'get'
+  })
+}
+
+export function getAuditEventStats() {
+  return request({
+    url: '/api/v2/audit/events/stats',
+    method: 'get'
+  })
+}
+
+export function createAuditExport(data) {
+  return request({
+    url: '/api/v2/audit/reports/export',
+    method: 'post',
+    data
+  })
+}
+
+export function getAuditExportTasks(params) {
+  return request({
+    url: '/api/v2/audit/reports/tasks',
+    method: 'get',
+    params
+  })
+}
+
+export function getAuditExportTaskDetail(taskId) {
+  return request({
+    url: `/api/v2/audit/reports/tasks/${taskId}`,
+    method: 'get'
+  })
+}
+
+export function downloadAuditReport(taskId) {
+  return request({
+    url: `/api/v2/audit/reports/download/${taskId}`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+export function getAuditAlerts(params) {
+  return request({
+    url: '/api/v2/audit/alerts',
+    method: 'get',
+    params
+  })
+}
+
+export function getAuditAlertDetail(alertId) {
+  return request({
+    url: `/api/v2/audit/alerts/${alertId}`,
+    method: 'get'
+  })
+}
+
+export function ackAuditAlert(alertId) {
+  return request({
+    url: `/api/v2/audit/alerts/${alertId}/ack`,
+    method: 'post'
+  })
+}
+
+export function resolveAuditAlert(alertId, data) {
+  return request({
+    url: `/api/v2/audit/alerts/${alertId}/resolve`,
+    method: 'post',
+    data
+  })
+}
+
+export function getAuditAlertStats() {
+  return request({
+    url: '/api/v2/audit/alerts/stats',
+    method: 'get'
+  })
+}
+```
 
 ---
 
-## 9. 后端开发清单（Go）
+## 10. 后端开发清单（Go）
 
 建议新增：
-1. `application/server/api/v2/audit.go`（审计模块路由入口）
-2. `application/server/model/model.go` 补充审计请求/响应结构体
-3. `chaincode/model/model.go` 补充 `AuditEvent`、`AuditAlert`、`AuditExportTask` 结构及索引常量
-4. `chaincode/api/audit.go` 实现链码审计读写能力
-5. `chaincode/chaincode.go` 注册审计相关 invoke 方法
-6. HTTP 中间件（请求审计埋点）接入 `application/server`
+
+| 文件路径 | 说明 |
+|----------|------|
+| application/server/api/v2/audit.go | 审计模块路由入口 |
+| application/server/model/model.go | 补充审计请求/响应结构体 |
+| chaincode/model/model.go | 补充 AuditEvent、AuditAlert、AuditExportTask 结构及索引常量 |
+| chaincode/api/audit.go | 实现链码审计读写能力 |
+| chaincode/chaincode.go | 注册审计相关 invoke 方法 |
+| application/server/middleware/audit.go | HTTP 中间件（请求审计埋点） |
 
 ---
 
-## 10. 统一交互流程（端到端）
+## 11. 统一交互流程（端到端）
 
-1. 管理员执行业务操作（如查询病历）
-2. 后端调用链码完成业务逻辑
-3. 后端同步/异步写入 `AuditEvent`（含 tx_id）
-4. 告警规则引擎判断是否命中，命中则写 `AuditAlert`
-5. 管理员在“审计检索/告警中心”查看结果
-6. 管理员按条件发起导出，生成 `AuditExportTask` 并下载文件
-7. 导出与告警处置行为也会再次写入 `AuditEvent`（形成闭环）
+```mermaid
+flowchart LR
+    A[管理员执行业务操作] --> B[后端调用链码完成业务逻辑]
+    B --> C[后端同步/异步写入 AuditEvent]
+    C --> D[告警规则引擎判断是否命中]
+    D --> E{命中?}
+    E -->|是| F[写入 AuditAlert]
+    E -->|否| G[仅记录事件]
+    F --> H[管理员在告警中心查看]
+    G --> I[管理员在审计检索查看]
+    I --> J[按条件发起导出]
+    J --> K[生成 AuditExportTask]
+    K --> L[下载导出文件]
+    L --> M[导出行为写入 AuditEvent]
+    H --> N[确认/关闭告警]
+    N --> O[处置行为写入 AuditEvent]
+```
 
 ---
 
-## 11. 验收标准（本期）
+## 12. 验收标准（本期）
 
 1. 审计检索页可按至少 5 个条件组合查询链上日志。
 2. 日志详情可看到 tx_id、请求摘要、结果信息。
@@ -537,17 +1924,55 @@ type AuditAlertStatsResponse struct {
 
 ---
 
-## 12. 附录：事件类型建议（第一期）
-- `LOGIN`
-- `QUERY_RECORD`
-- `CREATE_RECORD`
-- `GRANT_RECORD_AUTH`
-- `RENEW_RECORD_AUTH`
-- `REVOKE_RECORD_AUTH`
-- `CHECK_RECORD_ACCESS`
-- `EXPORT_REPORT_CREATE`
-- `EXPORT_REPORT_DOWNLOAD`
-- `ALERT_ACK`
-- `ALERT_RESOLVE`
-- `API_ERROR`
-- `CHAINCODE_ERROR`
+## 13. 附录
+
+### 13.1 事件类型（第一期）
+
+| 事件类型 | 说明 |
+|----------|------|
+| LOGIN | 用户登录 |
+| QUERY_RECORD | 查询病历 |
+| CREATE_RECORD | 创建病历 |
+| GRANT_RECORD_AUTH | 发起授权 |
+| RENEW_RECORD_AUTH | 续期授权 |
+| REVOKE_RECORD_AUTH | 撤销授权 |
+| CHECK_RECORD_ACCESS | 校验访问权限 |
+| EXPORT_REPORT_CREATE | 创建导出任务 |
+| EXPORT_REPORT_DOWNLOAD | 下载导出文件 |
+| ALERT_ACK | 确认告警 |
+| ALERT_RESOLVE | 关闭告警 |
+| API_ERROR | API错误 |
+| CHAINCODE_ERROR | 链码错误 |
+
+### 13.2 事件级别
+
+| 级别 | 说明 | 触发场景 |
+|------|------|----------|
+| L1 | 普通 | 常规操作，如查询、登录 |
+| L2 | 警告 | 敏感操作，如授权、导出 |
+| L3 | 严重 | 失败操作、错误、异常行为 |
+
+### 13.3 告警级别
+
+| 级别 | 说明 | 响应时限 |
+|------|------|----------|
+| HIGH | 高危 | 立即处理 |
+| MEDIUM | 中危 | 24小时内处理 |
+| LOW | 低危 | 72小时内处理 |
+
+### 13.4 导出任务状态
+
+| 状态 | 说明 |
+|------|------|
+| PENDING | 等待处理 |
+| RUNNING | 生成中 |
+| SUCCESS | 生成成功 |
+| FAIL | 生成失败 |
+
+### 13.5 告警状态
+
+| 状态 | 说明 |
+|------|------|
+| NEW | 新建待确认 |
+| ACKED | 已确认待处理 |
+| RESOLVED | 已关闭/已解决 |

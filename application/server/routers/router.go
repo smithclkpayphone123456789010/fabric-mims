@@ -2,12 +2,16 @@ package routers
 
 import (
 	v2 "application/api/v2"
+	"application/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 // InitRouter 初始化路由信息
 func InitRouter() *gin.Engine {
 	r := gin.Default()
+
+	// 添加审计中间件
+	r.Use(middleware.AuditMiddleware())
 
 	apiV2 := r.Group("/api/v2")
 	{
@@ -52,6 +56,28 @@ func InitRouter() *gin.Engine {
 		apiV2.POST("/ai/report-translator", v2.AIReportTranslator)
 		apiV2.GET("/ai/sessions", v2.AIGetSessions)
 		apiV2.GET("/ai/session/:id/messages", v2.AIGetSessionMessages)
+
+		// ---------------------- 审计监控模块 ----------------------
+		// 日志采集
+		apiV2.POST("/audit/events/manual", v2.CreateAuditEventManual)
+		apiV2.GET("/audit/collector/health", v2.GetAuditCollectorHealth)
+
+		// 审计检索
+		apiV2.GET("/audit/events", v2.GetAuditEvents)
+		apiV2.GET("/audit/events/stats", v2.GetAuditEventStats)
+		apiV2.GET("/audit/events/:id", v2.GetAuditEventDetail)
+
+		// 告警模块
+		apiV2.GET("/audit/alerts", v2.GetAuditAlerts)
+		apiV2.GET("/audit/alerts/stats", v2.GetAuditAlertStats)
+		apiV2.GET("/audit/alerts/:id", v2.GetAuditAlertDetail)
+		apiV2.POST("/audit/alerts/:id/ack", v2.AckAuditAlert)
+		apiV2.POST("/audit/alerts/:id/resolve", v2.ResolveAuditAlert)
+
+		// 导出模块
+		apiV2.POST("/audit/reports/export", v2.CreateAuditExport)
+		apiV2.GET("/audit/reports/tasks", v2.GetAuditExportTasks)
+		apiV2.GET("/audit/reports/tasks/:id", v2.GetAuditExportTaskDetail)
 	}
 	return r
 }
