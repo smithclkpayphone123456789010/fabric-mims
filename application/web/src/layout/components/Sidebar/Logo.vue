@@ -24,7 +24,7 @@ export default {
   },
   data() {
     return {
-      title: '基于区块链的医疗信息管理系统',
+      title: '基于区块链的医院患者管理系统',
       logo: 'https://s1.ax1x.com/2020/03/18/8w22rj.png'
     }
   }

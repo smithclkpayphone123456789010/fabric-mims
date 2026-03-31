@@ -1,6 +1,6 @@
 module.exports = {
 
-  title: '基于区块链的医疗信息管理系统',
+  title: '基于区块链的医院患者管理系统',
 
   /**
    * @type {boolean} true | false

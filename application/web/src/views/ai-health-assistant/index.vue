@@ -53,6 +53,9 @@
             <el-button size="mini" :type="focusMode==='triage' ? 'primary' : 'default'" :plain="focusMode!=='triage'" @click="toggleMode('triage')">症状导诊</el-button>
             <el-button size="mini" :type="focusMode==='rehab' ? 'primary' : 'default'" :plain="focusMode!=='rehab'" @click="toggleMode('rehab')">个性化康复伴行</el-button>
             <el-button size="mini" :type="focusMode==='translator' ? 'primary' : 'default'" :plain="focusMode!=='translator'" @click="toggleMode('translator')">检查报告翻译官</el-button>
+            <el-button size="mini" type="success" :plain="!isClinicMode" @click="toggleClinicMode">
+              <i class="el-icon-plus" /> AI诊室
+            </el-button>
           </div>
 
           <div class="guide-card">
@@ -157,12 +160,146 @@
         <el-button type="primary" @click="recordDialogVisible=false">确认</el-button>
       </span>
     </el-dialog>
+
+    <!-- AI诊室气泡框 -->
+    <div v-if="showClinicDialog" class="clinic-overlay" @click.self="closeClinicDialog">
+      <div class="clinic-dialog">
+        <div class="clinic-header">
+          <div class="clinic-title">
+            <i class="el-icon-s-help" /> AI智能诊室
+          </div>
+          <div class="clinic-subtitle" v-if="!clinicComplete">您已进入AI诊室，系统将引导您完成健康咨询</div>
+          <div class="clinic-subtitle" v-else>
+            <span class="complete-tag"><i class="el-icon-circle-check" /> 问诊已完成</span>
+          </div>
+          <el-button class="clinic-close" type="text" @click="closeClinicDialog"><i class="el-icon-close" /></el-button>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="clinic-progress" v-if="!clinicComplete">
+          <div class="progress-info">
+            <span class="step-name">{{ clinicStepName }}</span>
+            <span class="step-count">第 {{ clinicCurrentStep }}/6 轮</span>
+          </div>
+          <el-progress :percentage="clinicProgress" :show-text="false" :stroke-width="8" color="#10b981"></el-progress>
+        </div>
+
+        <!-- 问诊流程说明 -->
+        <div class="clinic-steps" v-if="!clinicComplete && clinicCurrentStep === 0">
+          <div class="steps-title">问诊流程</div>
+          <div class="step-item" v-for="(step, idx) in clinicFlowSteps" :key="idx" :class="{ active: idx === 0, done: idx < 0 }">
+            <span class="step-num">{{ idx + 1 }}</span>
+            <span class="step-text">{{ step }}</span>
+          </div>
+          <div class="clinic-enter-hint">点击下方"开始问诊"按钮进入第1轮问询</div>
+        </div>
+
+        <!-- 问诊消息区域 -->
+        <div class="clinic-messages" ref="clinicMessages">
+          <div v-for="m in clinicMessages" :key="m.id" class="clinic-msg" :class="m.role">
+            <div class="clinic-avatar" v-if="m.role === 'assistant'">AI</div>
+            <div class="clinic-bubble">{{ m.content }}</div>
+          </div>
+          <div v-if="clinicLoading" class="clinic-msg assistant">
+            <div class="clinic-avatar">AI</div>
+            <div class="clinic-bubble typing">
+              <span class="typing-indicator">
+                AI正在思考
+                <span class="ellipsis">
+                  <i class="dot dot1" /><i class="dot dot2" /><i class="dot dot3" />
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 诊断报告 - 优化版 -->
+        <div v-if="clinicComplete" class="clinic-report">
+          <!-- 主报告区域 -->
+          <div class="report-main">
+            <!-- 报告标题 -->
+            <div class="report-header">
+              <div class="report-badge">AI诊断报告已生成</div>
+              <p class="report-intro">以下是基于您提供信息的详细分析报告：</p>
+            </div>
+
+            <!-- 诊断结论卡片 -->
+            <div class="report-card conclusion-card" v-if="clinicReport">
+              <div class="card-header">
+                <i class="el-icon-document"></i>
+                <span>诊断结论</span>
+              </div>
+              <div class="card-body">{{ clinicReport }}</div>
+            </div>
+
+            <!-- 诊断摘要卡片 -->
+            <div class="report-card summary-card" v-if="clinicSummary">
+              <div class="card-header">
+                <i class="el-icon-notebook-2"></i>
+                <span>诊断摘要</span>
+              </div>
+              <div class="card-body">{{ clinicSummary }}</div>
+            </div>
+
+            <!-- 建议卡片 -->
+            <div class="report-card suggestion-card" v-if="clinicSuggestions && clinicSuggestions.length">
+              <div class="card-header warning">
+                <i class="el-icon-warning"></i>
+                <span>健康建议</span>
+              </div>
+              <ul class="suggestion-list">
+                <li v-for="(s, idx) in clinicSuggestions" :key="idx">{{ s }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- 底部操作栏 -->
+          <div class="report-footer">
+            <el-button type="primary" class="btn-register" @click="goToRegister">
+              <i class="el-icon-s-order"></i> 立即挂号
+            </el-button>
+            <el-button type="success" class="btn-download" @click="downloadReport">
+              <i class="el-icon-download"></i> 下载报告
+            </el-button>
+          </div>
+
+          <!-- 免责声明 -->
+          <div class="report-disclaimer">
+            <i class="el-icon-warning"></i>
+            <span>本报告由AI系统生成，仅供参考，不能替代专业医生的诊断。如症状严重或持续不缓解，请及时就医。紧急情况请拨打120急救电话。</span>
+          </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="clinic-foot" v-if="!clinicComplete">
+          <el-input
+            v-if="clinicCurrentStep > 0"
+            type="textarea"
+            :rows="2"
+            v-model="clinicInput"
+            :placeholder="clinicInputPlaceholder"
+          />
+          <div class="clinic-actions">
+            <el-button v-if="clinicCurrentStep === 0" type="primary" size="medium" @click="startClinic">
+              <i class="el-icon-video-play" /> 开始问诊
+            </el-button>
+            <template v-else>
+              <el-button size="small" @click="resetClinic">重新开始</el-button>
+              <el-button type="primary" :loading="clinicLoading" @click="submitClinicAnswer">
+                提交回答
+              </el-button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import { mapGetters } from 'vuex'
-import { aiSessions, aiSessionMessages, aiTriage, aiRehabCompanion, aiReportTranslator } from '@/api/aiAssistant'
+import { aiSessions, aiSessionMessages, aiTriage, aiRehabCompanion, aiReportTranslator,
+  aiClinicStart, aiClinicChat, aiClinicReset, aiClinicReport } from '@/api/aiAssistant'
 import { queryPrescriptionList } from '@/api/prescription'
 
 const API_BASE = process.env.VUE_APP_BASE_API || '/api/v2'
@@ -189,7 +326,31 @@ export default {
       lastAssistantMessageId: '',
       lastUserMessageId: '',
       focusMode: '',
-      recordDialogVisible: false
+      recordDialogVisible: false,
+
+      // AI诊室相关状态
+      showClinicDialog: false,
+      isClinicMode: false,
+      clinicSessionId: '',
+      clinicCurrentStep: 0,
+      clinicStepName: '',
+      clinicProgress: 0,
+      clinicMessages: [],
+      clinicInput: '',
+      clinicLoading: false,
+      clinicComplete: false,
+      clinicReport: '',
+      clinicSummary: '',
+      clinicSuggestions: [],
+      clinicFlowSteps: [
+        '主诉症状收集',
+        '症状详情追问',
+        '过往病史询问',
+        '家族遗传病史',
+        '用药情况了解',
+        '个人健康状况'
+      ],
+      clinicInputPlaceholder: '请输入您的回答...'
     }
   },
   computed: {
@@ -573,6 +734,180 @@ export default {
     scrollBottom() {
       const el = this.$refs.chatBody
       if (el) el.scrollTop = el.scrollHeight
+    },
+
+    // ==================== AI诊室功能 ====================
+    toggleClinicMode() {
+      this.isClinicMode = !this.isClinicMode
+      if (this.isClinicMode) {
+        this.showClinicDialog = true
+      }
+    },
+    closeClinicDialog() {
+      this.showClinicDialog = false
+      this.isClinicMode = false
+    },
+    async startClinic() {
+      try {
+        this.clinicLoading = true
+        const res = await aiClinicStart({ session_id: this.clinicSessionId })
+        if (res && res.session_id) {
+          this.clinicSessionId = res.session_id
+          this.clinicCurrentStep = res.current_step
+          this.clinicStepName = res.step_name
+          this.clinicProgress = res.progress || 0
+          this.clinicMessages = [{
+            id: res.message_id,
+            role: 'assistant',
+            content: res.content
+          }]
+        }
+      } catch (e) {
+        this.$message.error('启动AI诊室失败，请重试')
+      } finally {
+        this.clinicLoading = false
+      }
+    },
+    async submitClinicAnswer() {
+      if (!this.clinicInput.trim()) {
+        this.$message.warning('请输入您的回答')
+        return
+      }
+      const answer = this.clinicInput.trim()
+      this.clinicLoading = true
+
+      // 添加用户消息
+      this.clinicMessages.push({
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: answer
+      })
+      this.clinicInput = ''
+      this.scrollClinicBottom()
+
+      try {
+        const res = await aiClinicChat({
+          session_id: this.clinicSessionId,
+          current_step: this.clinicCurrentStep,
+          user_response: answer,
+          action: 'continue'
+        })
+
+        if (res && res.session_id) {
+          this.clinicCurrentStep = res.current_step
+          this.clinicStepName = res.step_name
+          this.clinicProgress = res.progress || 0
+
+          if (res.is_complete) {
+            // 问诊完成
+            this.clinicComplete = true
+            this.clinicReport = res.report || ''
+            this.clinicSummary = res.summary || ''
+            // 解析建议列表
+            this.clinicSuggestions = this.parseSuggestions(res.suggestions || res.report || '')
+            this.clinicMessages.push({
+              id: `report_${Date.now()}`,
+              role: 'assistant',
+              content: res.report || '诊断报告生成完成'
+            })
+          } else {
+            // 下一轮问询
+            this.clinicMessages.push({
+              id: res.message_id,
+              role: 'assistant',
+              content: res.ai_message || res.content
+            })
+            this.updateClinicPlaceholder()
+          }
+        }
+      } catch (e) {
+        this.$message.error('提交失败，请重试')
+      } finally {
+        this.clinicLoading = false
+        this.scrollClinicBottom()
+      }
+    },
+    updateClinicPlaceholder() {
+      const placeholders = {
+        1: '请描述您的主要不适症状（如头痛、胸闷、咳嗽等）',
+        2: '请详细描述症状的具体表现',
+        3: '请描述您的过往病史',
+        4: '请描述您的家族遗传病史',
+        5: '请描述您当前的用药情况',
+        6: '请描述您的生活习惯和工作环境'
+      }
+      this.clinicInputPlaceholder = placeholders[this.clinicCurrentStep] || '请输入您的回答'
+    },
+    scrollClinicBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.clinicMessages
+        if (el) el.scrollTop = el.scrollHeight
+      })
+    },
+    async resetClinic() {
+      try {
+        await aiClinicReset({ session_id: this.clinicSessionId })
+      } catch (e) {}
+      this.clinicCurrentStep = 0
+      this.clinicProgress = 0
+      this.clinicMessages = []
+      this.clinicInput = ''
+      this.clinicComplete = false
+      this.clinicReport = ''
+      this.clinicSummary = ''
+      this.clinicSuggestions = []
+    },
+    async startNewClinic() {
+      await this.resetClinic()
+      await this.startClinic()
+    },
+    goToRegister() {
+      this.$router.push('/outpatient/register')
+    },
+    parseSuggestions(text) {
+      // 从报告文本中提取建议列表
+      if (!text) return []
+      const suggestions = []
+      const lines = text.split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        // 匹配常见的建议模式
+        if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('·')) {
+          suggestions.push(trimmed.replace(/^[•\-\·]\s*/, ''))
+        } else if (/建议|注意|多喝|避免|及时|请/.test(trimmed) && trimmed.length < 100) {
+          suggestions.push(trimmed)
+        }
+      }
+      return suggestions.slice(0, 5) // 最多显示5条
+    },
+    downloadReport() {
+      // 生成并下载报告文本
+      const reportContent = `
+=== AI诊室诊断报告 ===
+
+诊断结论：
+${this.clinicReport}
+
+健康建议：
+${this.clinicSuggestions.map(s => '• ' + s).join('\n')}
+
+咨询小结：
+${this.clinicSummary}
+
+---
+免责声明：
+本报告由AI系统生成，仅供参考，不能替代专业医生的诊断。
+如症状严重或持续不缓解，请及时就医。紧急情况请拨打120急救电话。
+      `.trim()
+
+      const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `AI诊断报告_${new Date().toLocaleDateString()}.txt`
+      link.click()
+      URL.revokeObjectURL(url)
+      this.$message.success('报告下载成功')
     }
   }
 }
@@ -639,4 +974,86 @@ export default {
 .ri-name{font-size:13px;font-weight:700;color:#111827}
 .ri-time{font-size:11px;color:#9ca3af}
 .ri-line{font-size:12px;color:#374151;line-height:1.7}
+
+/* AI诊室气泡框样式 - 优化版 */
+.clinic-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}
+.clinic-dialog{background:#fff;border-radius:16px;width:720px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,0.2);overflow:hidden}
+.clinic-header{background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:20px 24px;position:relative}
+.clinic-title{font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px}
+.clinic-subtitle{font-size:13px;opacity:0.9;margin-top:6px}
+.complete-tag{background:rgba(255,255,255,0.25);padding:6px 14px;border-radius:16px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.clinic-close{position:absolute;top:16px;right:16px;color:#fff;padding:6px;border-radius:8px;background:rgba(255,255,255,0.15)}
+.clinic-close:hover{color:#fff;background:rgba(255,255,255,0.25)}
+
+.clinic-progress{padding:14px 24px;background:#f9fafb;border-bottom:1px solid #e5e7eb}
+.progress-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px}
+.step-name{color:#374151;font-weight:600}
+.step-count{color:#6b7280}
+
+.clinic-steps{padding:18px 24px;border-bottom:1px solid #e5e7eb;background:#f0fdf4}
+.steps-title{font-size:14px;font-weight:700;color:#065f46;margin-bottom:12px}
+.step-item{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:13px;color:#6b7280}
+.step-item.active{color:#059669;font-weight:600}
+.step-num{width:24px;height:24px;border-radius:50%;background:#d1fae5;color:#059669;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.step-text{color:#374151}
+.clinic-enter-hint{margin-top:14px;font-size:13px;color:#059669;text-align:center;padding:12px;background:#ecfdf5;border-radius:10px}
+
+.clinic-messages{flex:1;overflow:auto;padding:20px 24px;max-height:400px;background:#f9fafb}
+.clinic-msg{display:flex;gap:12px;margin-bottom:16px;align-items:flex-start}
+.clinic-msg.user{flex-direction:row-reverse}
+.clinic-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.clinic-msg.user .clinic-avatar{background:linear-gradient(135deg,#3b82f6,#155dfc)}
+.clinic-bubble{max-width:72%;padding:14px 18px;border-radius:14px;font-size:14px;line-height:1.7;white-space:pre-wrap}
+.clinic-msg.assistant .clinic-bubble{background:#fff;border:1px solid #e5e7eb;color:#111827;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.clinic-msg.user .clinic-bubble{background:linear-gradient(135deg,#155dfc,#2563eb);color:#fff;border:none}
+.clinic-bubble.typing{background:#f3f4f6;color:#6b7280}
+
+/* AI诊室底部输入区域 */
+.clinic-foot{padding:18px 24px;background:#fff;border-top:1px solid #e5e7eb}
+.clinic-actions{display:flex;justify-content:center;gap:14px;margin-top:12px}
+
+/* 诊断报告区域 - 优化版 */
+.clinic-report{flex:1;overflow:auto;padding:0;background:#fff;border-top:1px solid #e5e7eb;max-height:none;display:flex;flex-direction:column}
+
+/* 主报告区域 */
+.report-main{flex:1;overflow:auto;padding:20px 24px}
+
+/* 报告标题 */
+.report-header{margin-bottom:16px}
+.report-badge{background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:8px 16px;border-radius:8px;display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:10px}
+.report-intro{font-size:14px;color:#6b7280;margin:0}
+
+/* 报告卡片通用样式 */
+.report-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px}
+.card-header{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;color:#111827;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f3f4f6}
+.card-header i{font-size:18px;color:#155dfc}
+.card-header.warning i{color:#ea580c}
+.card-body{font-size:14px;line-height:1.8;color:#374151;white-space:pre-wrap}
+
+/* 诊断结论卡片 */
+.conclusion-card{border-left:4px solid #155dfc}
+.conclusion-card .card-header{color:#155dfc}
+
+/* 诊断摘要卡片 */
+.summary-card{border-left:4px solid #10b981}
+
+/* 建议卡片 */
+.suggestion-card{background:#fff7ed;border-color:#fed7aa;border-left:4px solid #ea580c}
+.suggestion-card .card-header{color:#9a3412;border-bottom-color:#fed7aa}
+.suggestion-list{list-style:none;padding:0;margin:0}
+.suggestion-list li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;font-size:14px;color:#9a3412;line-height:1.6;border-bottom:1px solid #fed7aa}
+.suggestion-list li:last-child{border-bottom:none}
+.suggestion-list li::before{content:"•";color:#ea580c;font-weight:bold;font-size:16px;flex-shrink:0}
+
+/* 底部操作栏 */
+.report-footer{display:flex;gap:12px;padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb}
+.report-footer .el-button{height:40px;padding:0 24px;font-size:14px;font-weight:500}
+.btn-register{background:#155dfc !important;border-color:#155dfc !important;color:#fff !important}
+.btn-register:hover{background:#0d4fd9 !important;border-color:#0d4fd9 !important}
+.btn-download{background:#00a63e !important;border-color:#00a63e !important;color:#fff !important}
+.btn-download:hover{background:#008f36 !important;border-color:#008f36 !important}
+
+/* 免责声明 */
+.report-disclaimer{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;font-size:12px;color:#6b7280;display:flex;align-items:flex-start;gap:8px;line-height:1.6;margin:0 24px 20px}
+.report-disclaimer i{color:#f59e0b;flex-shrink:0;margin-top:2px}
 </style>

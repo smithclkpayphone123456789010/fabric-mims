@@ -57,6 +57,13 @@ func InitRouter() *gin.Engine {
 		apiV2.GET("/ai/sessions", v2.AIGetSessions)
 		apiV2.GET("/ai/session/:id/messages", v2.AIGetSessionMessages)
 
+		// AI诊室
+		apiV2.POST("/ai/clinic/start", v2.AIClinicStart)
+		apiV2.POST("/ai/clinic/chat", v2.AIClinicChat)
+		apiV2.POST("/ai/clinic/reset", v2.AIClinicReset)
+		apiV2.GET("/ai/clinic/session/:id", v2.AIClinicGetSession)
+		apiV2.GET("/ai/clinic/report/:id", v2.AIClinicReport)
+
 		// ---------------------- 审计监控模块 ----------------------
 		// 日志采集
 		apiV2.POST("/audit/events/manual", v2.CreateAuditEventManual)
